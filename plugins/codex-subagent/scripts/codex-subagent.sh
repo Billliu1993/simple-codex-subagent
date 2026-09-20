@@ -271,28 +271,69 @@ set_review_scope() {
   fi
 }
 
+# The same scope, said in words: the sentence that opens a focused review's instructions, since
+# such a review cannot carry the flag. Takes the `scope` array as its arguments, so the sentence
+# and the flag can never disagree about what is being reviewed.
+review_scope_sentence() { # review_scope_sentence <scope-arg>...
+  case "$1" in
+    --uncommitted)
+      printf 'Review the uncommitted changes in the working tree: staged, unstaged, and untracked files.\n'
+      ;;
+    --base)
+      printf 'Review the changes on the current branch relative to the base branch %s, i.e. the diff %s...HEAD.\n' \
+        "$2" "$2"
+      ;;
+    --commit)
+      printf 'Review the changes introduced by commit %s.\n' "$2"
+      ;;
+  esac
+}
+
 # `codex exec review` takes no --sandbox and no -C: it edits nothing, so there is no sandbox to
 # choose, and the repository is whichever one the process sits in. Hence the cd, and hence no
 # network override. Web search is live here as on every other run, so a review can check what the
 # current documentation says rather than what it remembers.
+#
+# The scope reaches Codex one of two ways, never both. Verified against codex-cli 0.155.1: the
+# positional PROMPT of `codex exec review` is a fourth scope preset, mutually exclusive with every
+# scope flag, so a scope flag plus a prompt dies in argument parsing --
+#   error: the argument '--base <BRANCH>' cannot be used with '[PROMPT]'
+# -- with exit 2 and nothing run, the same for `--uncommitted` and `--commit`. So: no focus, and
+# the scope is the flag; a focus, and the scope becomes the first line of the instructions with
+# the focus following it unchanged. Either way `review-scope` records the scope the wrapper chose
+# and how it was delivered, so the run directory still says what was actually reviewed.
 run_review() {
   read_prompt_to_file
   cd "$git_toplevel"
 
   local -a scope=()
   set_review_scope
-  printf '%s\n' "${scope[@]}" >"$run_dir/review-scope"
+  local -a scope_flags=("${scope[@]}")
+  local delivered_as=flag
 
   # An empty focus with `-` would leave codex waiting on an empty prompt, so pass no prompt at all.
   local -a focus_arg=()
   if [[ -s $run_dir/prompt.md ]]; then
+    delivered_as=instructions
+    mv "$run_dir/prompt.md" "$run_dir/focus.md"
+    {
+      review_scope_sentence "${scope[@]}"
+      printf '\n'
+      cat "$run_dir/focus.md"
+    } >"$run_dir/prompt.md"
     focus_arg=(-)
+    scope_flags=()
   else
     codex_stdin=/dev/null
   fi
 
+  {
+    printf '%s\n' "${scope[@]}"
+    printf 'delivered-as: %s\n' "$delivered_as"
+  } >"$run_dir/review-scope"
+
   local status=0
-  invoke_codex codex exec review "${scope[@]}" \
+  invoke_codex codex exec review ${scope_flags[@]+"${scope_flags[@]}"} \
     -m "$model" \
     -c "model_reasoning_effort=\"$effort\"" \
     -c 'web_search="live"' \
