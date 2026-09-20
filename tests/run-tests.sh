@@ -410,6 +410,190 @@ case_status_check_mid_run_and_after() {
   fi
 }
 
+
+# --- ticket 05 ---
+
+t5_status=0
+t5_run_dir=""
+
+t5_write_focus() { # t5_write_focus <path>
+  printf '%s\n' 'Watch the "retry" path; $BACKOFF is off-by-one — café.' >"$1"
+}
+
+t5_review() { # t5_review <focus-file> [extra wrapper args...]
+  local focus=$1
+  shift
+  bash "$WRAPPER" review --model test-model --effort medium "$@" \
+    <"$focus" >"$case_dir/out" 2>"$case_dir/err"
+  t5_status=$?
+  t5_run_dir=$(head -n1 "$case_dir/out")
+}
+
+t5_dirty_the_tree() {
+  printf 'edited\n' >>seed.txt
+}
+
+# The scope reaches codex as its own argv entries, and the run dir records it for the user.
+t5_assert_scope() { # t5_assert_scope <recorded-scope> <flag> [value]
+  local argv_file
+  argv_file=$(latest_argv_file)
+  assert_eq exec "$(sed -n 1p "$argv_file")" "first argument is exec"
+  assert_eq review "$(sed -n 2p "$argv_file")" "second argument is review"
+  if (($# >= 3)); then
+    assert_argv_has "$2" "$3"
+  else
+    assert_argv_has "$2"
+  fi
+  assert_eq "$1" "$(cat "$t5_run_dir/review-scope")" "review-scope records '$1'"
+}
+
+case_review_scope_uncommitted() {
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --uncommitted
+  assert_eq 0 "$t5_status" "review --uncommitted exits 0"
+  t5_assert_scope "--uncommitted" --uncommitted
+}
+
+case_review_scope_base() {
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --base foo
+  assert_eq 0 "$t5_status" "review --base exits 0"
+  t5_assert_scope "--base foo" --base foo
+}
+
+case_review_scope_commit() {
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --commit abc123
+  assert_eq 0 "$t5_status" "review --commit exits 0"
+  t5_assert_scope "--commit abc123" --commit abc123
+}
+
+case_review_conflicting_scopes() {
+  local status
+  t5_write_focus "$case_dir/focus"
+
+  t5_review "$case_dir/focus" --uncommitted --base foo
+  assert_eq 64 "$t5_status" "--uncommitted with --base exits 64"
+  assert_contains "$(cat "$case_dir/err")" "codex-subagent: " "reason on stderr"
+
+  t5_review "$case_dir/focus" --base foo --commit abc123
+  assert_eq 64 "$t5_status" "--base with --commit exits 64"
+
+  t5_review "$case_dir/focus" --commit abc123 --uncommitted
+  assert_eq 64 "$t5_status" "--commit with --uncommitted exits 64"
+
+  status=$(cat "$FAKE_CODEX_RECORD_DIR/count" 2>/dev/null) || status=0
+  assert_eq 0 "$status" "a conflicting scope never reaches codex"
+}
+
+case_review_default_scope_dirty() {
+  t5_write_focus "$case_dir/focus"
+  t5_dirty_the_tree
+  t5_review "$case_dir/focus"
+  assert_eq 0 "$t5_status" "review with no scope exits 0"
+  t5_assert_scope "--uncommitted" --uncommitted
+  assert_argv_lacks "--base"
+}
+
+case_review_default_scope_clean() {
+  local branch
+  branch=$(git rev-parse --abbrev-ref HEAD)
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus"
+  assert_eq 0 "$t5_status" "review of a clean tree exits 0"
+  t5_assert_scope "--base $branch" --base "$branch"
+  assert_argv_lacks "--uncommitted"
+}
+
+case_review_default_scope_origin_head() {
+  # A symref is enough: git does not require the branch it points at to exist locally.
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/develop
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus"
+  assert_eq 0 "$t5_status" "review against origin/HEAD exits 0"
+  t5_assert_scope "--base origin/develop" --base origin/develop
+}
+
+case_review_focus_on_stdin() {
+  local argv_file
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --uncommitted
+  argv_file=$(latest_argv_file)
+  assert_eq '-' "$(tail -n1 "$argv_file")" "last argument is - so the focus comes from stdin"
+  if cmp -s "$case_dir/focus" "$FAKE_CODEX_RECORD_DIR/stdin.1"; then
+    pass "focus bytes reach codex stdin unchanged"
+  else
+    fail "focus bytes reach codex stdin unchanged"
+  fi
+  if cmp -s "$case_dir/focus" "$t5_run_dir/prompt.md"; then
+    pass "focus is buffered to the run dir unchanged"
+  else
+    fail "focus is buffered to the run dir unchanged"
+  fi
+}
+
+case_review_empty_focus() {
+  : >"$case_dir/focus"
+  t5_review "$case_dir/focus" --uncommitted
+  assert_eq 0 "$t5_status" "review with an empty focus exits 0"
+  if grep -Fxq -- '-' "$(latest_argv_file)"; then
+    fail "an empty focus sends no bare - argument"
+  else
+    pass "an empty focus sends no bare - argument"
+  fi
+  assert_eq 0 "$(wc -c <"$FAKE_CODEX_RECORD_DIR/stdin.1" | tr -d ' ')" "codex gets empty stdin"
+}
+
+case_review_model_and_effort() {
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --uncommitted
+  assert_argv_has -m test-model
+  assert_argv_has --json
+  assert_argv_has -o "$t5_run_dir/final-message.md"
+  t2_assert_argv_pair -c 'model_reasoning_effort="medium"'
+}
+
+case_review_carries_no_sandbox() {
+  local forbidden recorded
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --uncommitted
+  recorded=$(cat "$t5_run_dir/argv")
+  for forbidden in --sandbox sandbox_mode sandbox_workspace_write web_search network_access; do
+    assert_argv_lacks "$forbidden"
+    assert_not_contains "$recorded" "$forbidden" "run dir argv lacks $forbidden"
+  done
+  while read -r forbidden; do
+    assert_argv_lacks "$forbidden"
+    assert_not_contains "$recorded" "$forbidden" "run dir argv lacks $forbidden"
+  done < <(t2_forbidden_args)
+}
+
+case_review_run_directory_contents() {
+  local name
+  export FAKE_CODEX_FINAL_MESSAGE="two findings, one blocker"
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --uncommitted
+  for name in progress.log events.jsonl final-message.md pid exit-code argv review-scope; do
+    assert_file_exists "$t5_run_dir/$name" "run dir has $name"
+  done
+  assert_contains "$(cat "$t5_run_dir/final-message.md")" "two findings, one blocker" \
+    "findings arrive in final-message.md"
+  assert_eq 0 "$(cat "$t5_run_dir/exit-code")" "exit-code records 0"
+}
+
+case_review_passes_through_exit_code() {
+  t5_write_focus "$case_dir/focus"
+
+  export FAKE_CODEX_EXIT=0
+  t5_review "$case_dir/focus" --uncommitted
+  assert_eq 0 "$t5_status" "wrapper exits 0 when codex exits 0"
+
+  export FAKE_CODEX_EXIT=4
+  t5_review "$case_dir/focus" --uncommitted
+  assert_eq 4 "$t5_status" "wrapper exits 4 when codex exits 4"
+  assert_eq 4 "$(cat "$t5_run_dir/exit-code")" "exit-code records 4"
+}
+
 # --- run the cases ---
 
 # ticket 01
@@ -431,6 +615,21 @@ run_case case_run_passes_through_exit_code
 
 # ticket 03
 run_case case_status_check_mid_run_and_after
+
+# ticket 05
+run_case case_review_scope_uncommitted
+run_case case_review_scope_base
+run_case case_review_scope_commit
+run_case case_review_conflicting_scopes
+run_case case_review_default_scope_dirty
+run_case case_review_default_scope_clean
+run_case case_review_default_scope_origin_head
+run_case case_review_focus_on_stdin
+run_case case_review_empty_focus
+run_case case_review_model_and_effort
+run_case case_review_carries_no_sandbox
+run_case case_review_run_directory_contents
+run_case case_review_passes_through_exit_code
 
 printf 'PASS: %s FAIL: %s\n' "$pass_count" "$fail_count"
 ((fail_count == 0)) || exit 1

@@ -35,6 +35,7 @@ review_scope=""       # --uncommitted, --base, or --commit
 review_scope_value=""
 run_dir=""
 git_toplevel=""
+codex_stdin=""         # what codex reads on stdin; the buffered prompt unless set otherwise
 
 parse_args() {
   subcommand=${1:-}
@@ -152,7 +153,7 @@ record_result() { # record_result <exit-code>
 invoke_codex() { # invoke_codex codex <arg>...
   local status=0 codex_pid
   write_argv "$@"
-  "$@" <"$run_dir/prompt.md" >"$run_dir/events.jsonl" 2>"$run_dir/progress.log" &
+  "$@" <"${codex_stdin:-$run_dir/prompt.md}" >"$run_dir/events.jsonl" 2>"$run_dir/progress.log" &
   codex_pid=$!
   printf '%s\n' "$codex_pid" >"$run_dir/pid"
   wait "$codex_pid" || status=$?
@@ -182,9 +183,64 @@ run_resume() {
   die 70 "run --resume: not implemented yet"
 }
 
-# --- ticket 05 fills this ---
+# What a review with no scope flag diffs against on a clean tree: the branch the repo merges into.
+# `origin/HEAD`'s short name (`origin/main`, say) when the remote publishes one, since the remote
+# tracking branch is the honest base; otherwise whichever of main or master exists here.
+review_default_branch() {
+  local ref=""
+  ref=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || ref=""
+  if [[ -n $ref ]]; then
+    printf '%s\n' "$ref"
+  elif git show-ref --verify --quiet refs/heads/main; then
+    printf 'main\n'
+  else
+    printf 'master\n'
+  fi
+}
+
+# The scope this review diffs: the flag the caller gave, else what the tree suggests.
+review_scope_args() {
+  if [[ -n $review_scope_value ]]; then
+    printf '%s\n%s\n' "$review_scope" "$review_scope_value"
+  elif [[ -n $review_scope ]]; then
+    printf '%s\n' "$review_scope"
+  elif [[ -n $(git status --porcelain) ]]; then
+    printf -- '--uncommitted\n'
+  else
+    printf -- '--base\n%s\n' "$(review_default_branch)"
+  fi
+}
+
+# `codex exec review` takes no --sandbox and no -C: it edits nothing, so there is no sandbox to
+# choose, and the repository is whichever one the process sits in. Hence the cd, and hence no
+# network or web-search override here either.
 run_review() {
-  die 70 "review: not implemented yet"
+  read_prompt_to_file
+  cd "$git_toplevel"
+
+  local -a scope=()
+  local line
+  while IFS= read -r line; do
+    scope+=("$line")
+  done < <(review_scope_args)
+  printf '%s\n' "${scope[*]}" >"$run_dir/review-scope"
+
+  # An empty focus with `-` would leave codex waiting on an empty prompt, so pass no prompt at all.
+  local -a focus_arg=()
+  if [[ -s $run_dir/prompt.md ]]; then
+    focus_arg=(-)
+  else
+    codex_stdin=/dev/null
+  fi
+
+  local status=0
+  invoke_codex codex exec review "${scope[@]}" \
+    -m "$model" \
+    -c "model_reasoning_effort=\"$effort\"" \
+    --json \
+    -o "$run_dir/final-message.md" \
+    ${focus_arg[@]+"${focus_arg[@]}"} || status=$?
+  return "$status"
 }
 
 main() {
