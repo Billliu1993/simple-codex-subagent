@@ -1,6 +1,6 @@
 # Spec: codex-subagent plugin
 
-Status: ready-for-agent
+Status: implemented in PR #1 (feat/codex-subagent-plugin)
 Source: grilling session on 2026-09-14, superseding the brief in `minimal-claude-codex-delegation-skill.md` where they differ.
 Vocabulary: `CONTEXT.md`. Governing decision: ADR-0001.
 

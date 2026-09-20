@@ -4,16 +4,20 @@
 
 **Blocked by:** 02 (Implementation and research runs return a final message)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Implementation:** delegate the build to an Agent-tool subagent with `model: "opus"`. The main session runs on Fable and only plans, reviews the subagent's diff, and checks the acceptance criteria.
 
-- [ ] Thread id captured from the first JSON event of a run and stored in the run directory
-- [ ] `--resume <id>` invokes the exec resume form with the id, model, effort, and last-message output
-- [ ] Every resume invocation carries `-c sandbox_mode="read-only"` or `-c sandbox_mode="workspace-write"` matching the `--read-only` flag; never the `--sandbox` flag, which resume does not accept
-- [ ] Resume failure before a thread-started event triggers a fresh run with the same prompt
-- [ ] Fallback is reported on stderr and recorded in the run directory
-- [ ] Skill text tells Claude when to resume and to send only the delta
-- [ ] Tests cover thread id capture, resume argv, and the fallback path
-- [ ] Tests assert the `sandbox_mode` override is present on resume for both sandboxes and that the fallback fresh run uses the same sandbox
+- [x] Thread id captured from the first JSON event of a run and stored in the run directory
+- [x] `--resume <id>` invokes the exec resume form with the id, model, effort, and last-message output
+- [x] Every resume invocation carries `-c sandbox_mode="read-only"` or `-c sandbox_mode="workspace-write"` matching the `--read-only` flag; never the `--sandbox` flag, which resume does not accept
+- [x] Resume failure before a thread-started event triggers a fresh run with the same prompt
+- [x] Fallback is reported on stderr and recorded in the run directory
+- [x] Skill text tells Claude when to resume and to send only the delta
+- [x] Tests cover thread id capture, resume argv, and the fallback path
+- [x] Tests assert the `sandbox_mode` override is present on resume for both sandboxes and that the fallback fresh run uses the same sandbox
 - [ ] Smoke: a read-only run resumed with `--read-only` cannot write a file; the same thread resumed without `--read-only` can
+
+## Comments
+
+- 2026-09-19: implemented on branch `feat/codex-subagent-plugin`, https://github.com/Billliu1993/simple-codex-subagent/pull/1. Checked items are covered by `tests/run-tests.sh` (fake codex) or by one real run during the build; unchecked items are left to the manual smoke checklist in `plugins/codex-subagent/README.md`.
