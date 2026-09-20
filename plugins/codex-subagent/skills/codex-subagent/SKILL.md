@@ -71,7 +71,23 @@ Continues the thread of an earlier run so a follow-up costs one short prompt.
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh" review --model <m> --effort <e> [--uncommitted | --base <branch> | --commit <sha>]
 ```
 
-The focus goes on stdin and may be empty. A review edits nothing: present the findings and stop.
+Scope the diff with one of `--uncommitted`, `--base <branch>`, or `--commit <sha>`. Given no scope
+flag the wrapper reviews uncommitted changes on a dirty tree and the diff against the default
+branch on a clean one, and records what it chose in `<run dir>/review-scope`. That default is the
+usual case; reach for a flag when the user names a branch, a commit, or the working tree.
+
+The focus is free text on stdin, and may be empty. It steers what Codex concentrates on, so send
+what the user is worried about, named by path and symbol.
+
+When the user asks for an adversarial review, prepend this block to the focus:
+
+> Assume this change is broken and find how, around the focus below. Hunt for the inputs,
+> orderings, and states that break it; one concrete failing case is worth more than any number of
+> style notes. Report severity-first: the worst thing you can make happen, first.
+
+The findings arrive in `<run dir>/final-message.md`. A review edits nothing, and neither do you:
+present the findings and stop there. The user picks which ones matter, and that choice is what a
+later run fixes.
 
 ## Report
 
