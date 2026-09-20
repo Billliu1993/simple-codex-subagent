@@ -47,42 +47,40 @@ goes stale on that list. `--read-only` picks the read-only sandbox; without it t
 repository.
 
 No file in the plugin names a model. Choosing a model is a `CLAUDE.md` edit, never a plugin
-release — the table below is the only place in this repository a model name appears.
+release, so the plugin never goes stale on a model that ships or retires.
 
 ## Suggested CLAUDE.md routing table
 
-Paste this into a repo's `CLAUDE.md`. The models and efforts are examples using the model that
-happens to be current here; edit every one of them for the repo and the models you have.
+Paste this into a repo's `CLAUDE.md` and replace every `<model>` with the Codex model you want that
+row to run on. The efforts are suggestions; edit them for the repo.
 
 ```markdown
 ## Codex routing
 
-Delegate to the `codex-subagent` skill by the table below. Models and efforts here are the ones
-this repo has chosen; they are not the plugin's defaults, because it has none.
+Delegate to the `codex-subagent` skill by the table below. The models and efforts here are this
+repo's choices; the plugin has no defaults. How the delegation behaves — when to propose it, how a
+run is watched, what is reported back — is the skill's business, not this table's.
 
 | Work | Model | Effort | Invocation |
 | --- | --- | --- | --- |
-| Implementation — a scoped change against a plan already agreed | `gpt-5.6-sol` | `high` | `/codex-subagent --model gpt-5.6-sol --effort high <task>` |
-| Research and exploration — how something works, where it lives, what the docs say | `gpt-5.6-sol` | `medium` | `/codex-subagent --model gpt-5.6-sol --effort medium --read-only <task>` |
-| Review — findings on a diff | `gpt-5.6-sol` | `high` | `/codex-subagent review --model gpt-5.6-sol --effort high [--uncommitted \| --base <branch> \| --commit <sha>] [focus]` |
-| Adversarial review — assume the change is broken and hunt for the break | `gpt-5.6-sol` | `high` | the review row, asked for as an adversarial review so the skill prepends its adversarial block |
+| Implementation — a scoped change against a plan already agreed | `<model>` | `high` | `/codex-subagent --model <model> --effort high <task>` |
+| Research and exploration — how something works, where it lives, what the docs say | `<model>` | `medium` | `/codex-subagent --model <model> --effort medium --read-only <task>` |
+| Review — findings on a diff | `<model>` | `high` | `/codex-subagent review --model <model> --effort high [--uncommitted \| --base <branch> \| --commit <sha>] [focus]` |
+| Adversarial review — assume the change is broken and hunt for the break | `<model>` | `high` | the review row, asked for as an adversarial review so the skill prepends its adversarial block |
 
-When a row matches and the user did not ask for Codex, propose the delegation, name that row's
-model and effort, and wait for a go-ahead before dispatching.
-
-Runs go to the background. Judge a quiet run with the status check in the skill, then apply this
-repo's threshold: <e.g. tell the user when a run has been quiet for 10 minutes, and leave the
-decision to kill it to them>.
+Runs go to the background. Tell me when the status check shows a run quiet for <N> minutes; the
+decision to kill it is mine.
 ```
 
-That last line is where a hang threshold belongs: in the repo's `CLAUDE.md`, next to the work it
-governs. The plugin holds no threshold and kills nothing, so a repo with legitimately long runs is
-never interrupted by it.
+That threshold line is the one number worth keeping in `CLAUDE.md`, next to the work it governs.
+The plugin holds no threshold and kills nothing, so a repo with legitimately long runs is never
+interrupted by it.
 
 ## The run directory
 
 The wrapper prints one line on stdout: the run directory. That path is the run id. It sits under
-`${TMPDIR:-/tmp}/codex-subagent/<timestamp>-<pid>/` and holds:
+`${TMPDIR:-/tmp}/codex-subagent/<timestamp>-<pid>-<random>/`, created by `mktemp -d` so it is
+private to the run, and holds:
 
 | File | What it is |
 | --- | --- |
@@ -117,6 +115,13 @@ The thread id comes from an earlier run's `thread-id`. The sandbox is chosen per
 inherited from the thread: a thread first run read-only can write when it is resumed without
 `--read-only`.
 
+A resume passes `--strict-config`, so Codex rejects a config key it does not recognise instead of
+ignoring it. That is deliberate: the resume form has no `--sandbox` flag, so the sandbox travels as
+the `sandbox_mode` config key, and a silently ignored key would leave the follow-up running under
+whatever sandbox the thread had. The cost is that a resume also fails when your own
+`~/.codex/config.toml` holds a key this Codex version does not know; a fresh run still works, and
+the fix is to correct the config.
+
 When Codex cannot reopen the thread, the wrapper abandons it rather than retrying: it records the
 reason in `resume-fallback`, says so on stderr, and runs the same prompt as a fresh run, exiting
 with that run's status. A delta-only prompt may be thin without the thread's memory, so Claude
@@ -137,11 +142,12 @@ that break it. A review edits nothing, and Claude presents the findings and stop
 ## Exit codes
 
 The wrapper exits with Codex's own status, so Claude's success and failure judgement is Codex's.
-Its own failures each print one line to stderr and use a distinct code:
+Codex's own statuses are normally 0 to 2 and pass through unchanged; 64 to 69 are the wrapper's
+own, and it prints one line to stderr with each:
 
 | Code | Reason |
 | --- | --- |
-| 64 | Unknown subcommand, unknown flag, bad sandbox value, or conflicting review scope flags |
+| 64 | Unknown subcommand, unknown flag, a flag given where its value belongs, or conflicting review scope flags |
 | 65 | Missing `--model` |
 | 66 | Missing `--effort` |
 | 67 | stdin is a terminal — the prompt must be piped |
