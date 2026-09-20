@@ -21,7 +21,7 @@ The last assistant message Codex emits for a run. The only run output Claude rea
 _Avoid_: Result, report, output
 
 **Progress log**:
-The stderr stream of a run, written to a file so Claude can watch for silence.
+A run's stderr and its JSON event stream, kept as two files in the run directory so Claude can watch for silence. The event stream is the one that moves; stderr carries only CLI-level errors.
 _Avoid_: Job log, trace
 
 **Wrapper**:

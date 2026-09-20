@@ -54,8 +54,38 @@ watch it themselves.
 
 ## Status check
 
-How to tell whether a quiet run is alive, how long its progress log has been still, and what its last
-lines say.
+One command, the run directory its only input. Run it when the user asks how a run is doing, and
+before you settle in to wait on a result.
+
+```bash
+d=<run dir>
+pid=$(cat "$d/pid")
+if kill -0 "$pid" 2>/dev/null; then
+  echo "pid $pid: alive"
+else
+  echo "pid $pid: exited, exit code $(cat "$d/exit-code" 2>/dev/null || echo 'not recorded')"
+fi
+newest=0
+for f in "$d/events.jsonl" "$d/progress.log"; do
+  # GNU stat first: BSD stat rejects -c, and BSD's -f prints a mount point under GNU.
+  m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null) || m=0
+  [ "$m" -gt "$newest" ] && newest=$m
+done
+echo "seconds since the log last moved: $(( $(date +%s) - newest ))"
+for f in "$d/events.jsonl" "$d/progress.log"; do
+  if [ -s "$f" ]; then
+    echo "--- tail $f"
+    tail -n 5 "$f"
+  fi
+done
+```
+
+`events.jsonl` is the file that moves while Codex works; `progress.log` carries CLI-level errors
+only and is empty on a healthy run.
+
+The check reads and prints, and that is all it does: it kills nothing and holds no threshold. How
+long a quiet run may stay quiet, and what to do when it does, is a decision for this repo's
+CLAUDE.md and the user.
 
 ## Resume
 
@@ -81,9 +111,10 @@ The wrapper exits with Codex's own status, so that status decides which branch y
 result; leave `events.jsonl` and `progress.log` unread, so the progress stream stays out of your
 context.
 
-**Any other exit.** Report the run as failed, with the exit code and `tail -n 40
-<run dir>/progress.log`. A failed run produced no result, so there is nothing to summarise as
-progress.
+**Any other exit.** Report the run as failed, with the exit code, `tail -n 40
+<run dir>/progress.log` and `tail -n 20 <run dir>/events.jsonl`. The failure may sit in either:
+stderr holds CLI-level errors and is often empty, so the event stream is usually where the run
+stops. A failed run produced no result, so there is nothing to summarise as progress.
 
 After an implementation run, check Codex's claims before the user hears them: read `git diff` and
 `git status`, confirm the change matches what the final message describes, and re-run the
