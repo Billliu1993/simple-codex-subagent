@@ -289,10 +289,17 @@ review_scope_sentence() { # review_scope_sentence <scope-arg>...
   esac
 }
 
-# `codex exec review` takes no --sandbox and no -C: it edits nothing, so there is no sandbox to
-# choose, and the repository is whichever one the process sits in. Hence the cd, and hence no
-# network override. Web search is live here as on every other run, so a review can check what the
-# current documentation says rather than what it remembers.
+# `codex exec review` takes no --sandbox and no -C: the sandbox travels as the `sandbox_mode`
+# config override instead, and the repository is whichever one the process sits in, hence the cd.
+# A review only reads, so that override pins it read-only rather than letting it inherit whatever
+# the user's Codex config happens to say -- the one place a review could otherwise be handed write
+# access. `--strict-config` is what makes the override load-bearing, exactly as on resume: without
+# it Codex ignores a key it does not know, so the day `sandbox_mode` is renamed a review would
+# silently run under the user's sandbox; with it, the review fails instead.
+#
+# Nothing here overrides the network, since that setting only applies to a workspace-write sandbox.
+# Web search is live here as on every other run, so a review can check what the current
+# documentation says rather than what it remembers.
 #
 # The scope reaches Codex one of two ways, never both. Verified against codex-cli 0.155.1: the
 # positional PROMPT of `codex exec review` is a fourth scope preset, mutually exclusive with every
@@ -334,8 +341,10 @@ run_review() {
 
   local status=0
   invoke_codex codex exec review ${scope_flags[@]+"${scope_flags[@]}"} \
+    --strict-config \
     -m "$model" \
     -c "model_reasoning_effort=\"$effort\"" \
+    -c 'sandbox_mode="read-only"' \
     -c 'web_search="live"' \
     --json \
     -o "$run_dir/final-message.md" \
