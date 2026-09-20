@@ -327,6 +327,190 @@ case_run_passes_through_exit_code() {
   assert_eq 3 "$(cat "$t2_run_dir/exit-code")" "exit-code records 3"
 }
 
+# --- ticket 04 ---
+
+t4_status=0
+t4_run_dir=""
+t4_thread="aaaaaaaa-1111-2222-3333-444444444444"
+t4_fresh_thread="bbbbbbbb-5555-6666-7777-888888888888"
+
+t4_write_prompt() { # t4_write_prompt <path>
+  printf '%s\n' 'Follow-up: now fix items 2 and 4 — "as discussed".' >"$1"
+}
+
+t4_run() { # t4_run <prompt-file> [extra wrapper args...]
+  local prompt=$1
+  shift
+  bash "$WRAPPER" run --model test-model --effort high "$@" \
+    <"$prompt" >"$case_dir/out" 2>"$case_dir/err"
+  t4_status=$?
+  t4_run_dir=$(head -n1 "$case_dir/out")
+}
+
+t4_argv() { # t4_argv <invocation number>
+  printf '%s\n' "$FAKE_CODEX_RECORD_DIR/argv.$1"
+}
+
+t4_invocations() {
+  cat "$FAKE_CODEX_RECORD_DIR/count" 2>/dev/null || printf '0\n'
+}
+
+t4_assert_pair() { # t4_assert_pair <argv-file> <flag> <value>: value present and preceded by flag
+  local line_no
+  line_no=$(grep -Fxn -- "$3" "$1" 2>/dev/null | head -n1 | cut -d: -f1)
+  if [[ -z "$line_no" ]]; then
+    fail "argv has $2 $3 (no such argument)"
+    return
+  fi
+  assert_eq "$2" "$(sed -n "$((line_no - 1))p" "$1")" "argv has $2 $3"
+}
+
+t4_assert_has_line() { # t4_assert_has_line <argv-file> <argument> <label>
+  if grep -Fxq -- "$2" "$1" 2>/dev/null; then
+    pass "$3"
+  else
+    fail "$3 (missing '$2')"
+  fi
+}
+
+t4_assert_lacks_line() { # t4_assert_lacks_line <argv-file> <argument> <label>
+  if grep -Fxq -- "$2" "$1" 2>/dev/null; then
+    fail "$3 (found '$2')"
+  else
+    pass "$3"
+  fi
+}
+
+# Substring, not whole argument: --sandbox=read-only would be just as wrong as --sandbox read-only.
+t4_assert_lacks_sandbox_flag() { # t4_assert_lacks_sandbox_flag <argv-file>
+  if grep -Fq -- '--sandbox' "$1" 2>/dev/null; then
+    fail "resume argv lacks --sandbox (found it)"
+  else
+    pass "resume argv lacks --sandbox"
+  fi
+}
+
+t4_assert_same_bytes() { # t4_assert_same_bytes <file-a> <file-b> <label>
+  if cmp -s "$1" "$2"; then
+    pass "$3"
+  else
+    fail "$3"
+  fi
+}
+
+case_thread_id_from_first_event() {
+  export FAKE_CODEX_THREAD_ID="$t4_thread"
+  t4_write_prompt "$case_dir/prompt"
+  t4_run "$case_dir/prompt"
+  assert_eq 0 "$t4_status" "fresh run exits 0"
+  assert_file_exists "$t4_run_dir/thread-id" "the run records a thread id"
+  assert_eq "$t4_thread" "$(cat "$t4_run_dir/thread-id" 2>/dev/null)" \
+    "thread-id is the id from the first event"
+}
+
+case_resume_argv() {
+  export FAKE_CODEX_THREAD_ID="$t4_thread"
+  local argv_file
+  t4_write_prompt "$case_dir/prompt"
+  t4_run "$case_dir/prompt" --resume "$t4_thread"
+  argv_file=$(t4_argv 1)
+
+  assert_eq 0 "$t4_status" "resume exits 0"
+  assert_eq 1 "$(t4_invocations)" "a working resume is the only invocation"
+  assert_eq exec "$(sed -n 1p "$argv_file")" "first argument is exec"
+  assert_eq resume "$(sed -n 2p "$argv_file")" "second argument is resume"
+  assert_eq "$t4_thread" "$(sed -n 3p "$argv_file")" "third argument is the thread id"
+  t4_assert_pair "$argv_file" -m test-model
+  t4_assert_pair "$argv_file" -c 'model_reasoning_effort="high"'
+  t4_assert_pair "$argv_file" -c 'web_search="live"'
+  t4_assert_has_line "$argv_file" --json "resume argv has --json"
+  t4_assert_pair "$argv_file" -o "$t4_run_dir/final-message.md"
+  assert_eq '-' "$(tail -n1 "$argv_file")" "last argument is - so the prompt comes from stdin"
+  t4_assert_lacks_line "$argv_file" -C "resume argv lacks -C, which resume does not accept"
+  t4_assert_lacks_sandbox_flag "$argv_file"
+  t4_assert_same_bytes "$case_dir/prompt" "$FAKE_CODEX_RECORD_DIR/stdin.1" \
+    "the delta reaches codex stdin unchanged"
+}
+
+case_resume_sandbox_read_only() {
+  local argv_file
+  t4_write_prompt "$case_dir/prompt"
+  t4_run "$case_dir/prompt" --resume "$t4_thread" --read-only
+  argv_file=$(t4_argv 1)
+  t4_assert_pair "$argv_file" -c 'sandbox_mode="read-only"'
+  t4_assert_lacks_sandbox_flag "$argv_file"
+}
+
+case_resume_sandbox_workspace_write() {
+  local argv_file
+  t4_write_prompt "$case_dir/prompt"
+  t4_run "$case_dir/prompt" --resume "$t4_thread"
+  argv_file=$(t4_argv 1)
+  t4_assert_pair "$argv_file" -c 'sandbox_mode="workspace-write"'
+  t4_assert_lacks_sandbox_flag "$argv_file"
+}
+
+# A resume that dies before the thread starts is abandoned: the same prompt runs fresh, in the
+# sandbox this call asked for, and the fresh run's status and thread id are the ones that count.
+t4_fallback_case() { # t4_fallback_case <expected sandbox> [wrapper args...]
+  local expected=$1
+  shift
+  local first second name
+  export FAKE_CODEX_RESUME_EXIT=1
+  export FAKE_CODEX_RESUME_EMIT_THREAD=0
+  export FAKE_CODEX_THREAD_ID="$t4_fresh_thread"
+  t4_write_prompt "$case_dir/prompt"
+  t4_run "$case_dir/prompt" --resume "$t4_thread" "$@"
+  first=$(t4_argv 1)
+  second=$(t4_argv 2)
+
+  assert_eq 2 "$(t4_invocations)" "the abandoned resume and the fresh run are both invoked"
+  assert_eq resume "$(sed -n 2p "$first")" "the first invocation is the resume"
+  assert_eq exec "$(sed -n 1p "$second")" "the second invocation is a fresh exec"
+  t4_assert_lacks_line "$second" resume "the fresh run does not resume"
+  t4_assert_pair "$second" --sandbox "$expected"
+  t4_assert_same_bytes "$case_dir/prompt" "$FAKE_CODEX_RECORD_DIR/stdin.2" \
+    "the fresh run gets the same prompt bytes"
+  assert_file_exists "$t4_run_dir/resume-fallback" "the run dir records the abandoned resume"
+  assert_contains "$(cat "$case_dir/err")" \
+    "codex-subagent: resume of $t4_thread failed before thread start; starting a fresh run" \
+    "stderr says the resume was abandoned"
+  assert_eq 0 "$t4_status" "the wrapper exits with the fresh run's status"
+  assert_eq 0 "$(cat "$t4_run_dir/exit-code" 2>/dev/null)" "exit-code is the fresh run's"
+  assert_eq "$t4_fresh_thread" "$(cat "$t4_run_dir/thread-id" 2>/dev/null)" \
+    "thread-id holds the fresh run's id"
+  for name in resume-argv resume-events.jsonl resume-progress.log; do
+    assert_file_exists "$t4_run_dir/$name" "the abandoned attempt's $name is kept"
+  done
+}
+
+case_resume_fallback_workspace_write() {
+  t4_fallback_case workspace-write
+}
+
+case_resume_fallback_read_only() {
+  t4_fallback_case read-only --read-only
+}
+
+# A resume that fails after its thread started is an ordinary failed run, not a stale thread.
+case_resume_failure_after_thread_start() {
+  export FAKE_CODEX_RESUME_EXIT=2
+  export FAKE_CODEX_THREAD_ID="$t4_thread"
+  t4_write_prompt "$case_dir/prompt"
+  t4_run "$case_dir/prompt" --resume "$t4_thread"
+
+  assert_eq 2 "$t4_status" "the wrapper passes through the resume's status"
+  assert_eq 1 "$(t4_invocations)" "no fresh run follows"
+  if [[ -e "$t4_run_dir/resume-fallback" ]]; then
+    fail "no fallback is recorded"
+  else
+    pass "no fallback is recorded"
+  fi
+  assert_not_contains "$(cat "$case_dir/err")" "starting a fresh run" \
+    "stderr claims no fallback"
+  assert_eq 2 "$(cat "$t4_run_dir/exit-code" 2>/dev/null)" "exit-code records 2"
+}
+
 # --- run the cases ---
 
 # ticket 01
@@ -345,6 +529,15 @@ run_case case_run_stdin_byte_for_byte
 run_case case_run_directory_contents
 run_case case_run_prints_run_dir_first
 run_case case_run_passes_through_exit_code
+
+# ticket 04
+run_case case_thread_id_from_first_event
+run_case case_resume_argv
+run_case case_resume_sandbox_read_only
+run_case case_resume_sandbox_workspace_write
+run_case case_resume_fallback_workspace_write
+run_case case_resume_fallback_read_only
+run_case case_resume_failure_after_thread_start
 
 printf 'PASS: %s FAIL: %s\n' "$pass_count" "$fail_count"
 ((fail_count == 0)) || exit 1
