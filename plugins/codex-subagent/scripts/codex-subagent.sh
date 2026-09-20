@@ -156,6 +156,12 @@ invoke_codex() { # invoke_codex codex <arg>...
   "$@" <"${codex_stdin:-$run_dir/prompt.md}" >"$run_dir/events.jsonl" 2>"$run_dir/progress.log" &
   codex_pid=$!
   printf '%s\n' "$codex_pid" >"$run_dir/pid"
+  # The thread id lands in `thread-id` as soon as the first event arrives, so a follow-up can
+  # resume a run that is still going and a status check can name the thread.
+  while kill -0 "$codex_pid" 2>/dev/null; do
+    if capture_thread_id; then break; fi
+    sleep 0.2
+  done
   wait "$codex_pid" || status=$?
   capture_thread_id || true
   record_result "$status"
@@ -178,9 +184,44 @@ run_fresh() {
   return "$status"
 }
 
-# --- ticket 04 fills this ---
+# A follow-up on an existing thread. The resume form takes no `--sandbox` and no `-C`, so the
+# sandbox travels as a config override (never inherited from the thread or the user's config) and
+# the working directory is set by cd'ing to the git toplevel first.
+#
+# A resume that dies before Codex ever started the thread means the thread is stale, missing, or
+# unusable: the task is still worth doing, so the same prompt starts a fresh run, and the failed
+# attempt is kept beside it under `resume-*` names. A resume that dies after the thread started
+# is an ordinary failure of a real run, and its status is Codex's answer.
 run_resume() {
-  die 70 "run --resume: not implemented yet"
+  read_prompt_to_file
+  cd "$git_toplevel"
+
+  local status=0
+  invoke_codex codex exec resume "$resume_id" \
+    -m "$model" \
+    -c "model_reasoning_effort=\"$effort\"" \
+    -c "sandbox_mode=\"$sandbox\"" \
+    -c 'web_search="live"' \
+    -c 'sandbox_workspace_write.network_access=true' \
+    --json \
+    -o "$run_dir/final-message.md" \
+    - || status=$?
+
+  if ((status == 0)) || capture_thread_id; then
+    return "$status"
+  fi
+
+  printf 'resume of %s failed before thread start (exit %s); thread abandoned, fresh run started\n' \
+    "$resume_id" "$status" >"$run_dir/resume-fallback"
+  printf 'codex-subagent: resume of %s failed before thread start; starting a fresh run\n' \
+    "$resume_id" >&2
+  mv "$run_dir/events.jsonl" "$run_dir/resume-events.jsonl"
+  mv "$run_dir/progress.log" "$run_dir/resume-progress.log"
+  mv "$run_dir/argv" "$run_dir/resume-argv"
+
+  status=0
+  run_fresh || status=$?
+  return "$status"
 }
 
 # What a review with no scope flag diffs against on a clean tree: the branch the repo merges into.
