@@ -90,9 +90,10 @@ private to the run, and holds:
 | `pid` | The Codex process id. |
 | `thread-id` | The Codex thread, once an event carries it. Feeds `--resume`. |
 | `exit-code` | Codex's exit status, written on completion. |
-| `prompt.md` | The prompt or focus as it arrived on stdin. |
+| `prompt.md` | What Codex read on stdin: the prompt as it arrived, or, for a review with a focus, the scope line and the focus. |
+| `focus.md` | Present only on a review with a focus: the focus as it arrived on stdin. |
 | `argv` | The exact `codex` argv, one argument per line. |
-| `review-scope` | The scope a review ran with, including one the wrapper chose. |
+| `review-scope` | The scope a review ran with, including one the wrapper chose, and how it was delivered. |
 | `resume-fallback` | Present only when a resume was abandoned; one line of reason. |
 | `resume-argv`, `resume-events.jsonl`, `resume-progress.log` | The abandoned resume attempt, kept beside the fresh run that replaced it. |
 
@@ -135,9 +136,17 @@ reviews uncommitted changes when the tree is dirty and the diff against the defa
 is clean, recording its choice in `review-scope`. The default branch is `origin/HEAD` when that
 exists, else `main`, else `master`.
 
-The focus is free text and may be empty. An adversarial review is the same run with the skill's
-canned block prepended: Codex assumes the change is broken and hunts for the inputs and orderings
-that break it. A review edits nothing, and Claude presents the findings and stops.
+The focus is free text and may be empty. `codex exec review` accepts either a scope flag or custom
+instructions and rejects the two together, so a review with a focus carries no scope flag: the
+wrapper states the scope in words as the first line of the instructions, a blank line, then the
+focus unchanged, and `review-scope` gains a `delivered-as: flag` or `delivered-as: instructions`
+line saying which route it took (the raw focus is kept in `focus.md`). This is the one place the
+wrapper says the diff scope in words rather than leaving it to Codex's flag, so the sentences live
+next to the flags in the wrapper and are asserted in the tests.
+
+An adversarial review is the same run with the skill's canned block prepended: Codex assumes the
+change is broken and hunts for the inputs and orderings that break it. A review edits nothing, and
+Claude presents the findings and stops.
 
 ## Exit codes
 

@@ -122,6 +122,11 @@ usual case; reach for a flag when the user names a branch, a commit, or the work
 The focus is free text on stdin, and may be empty. It steers what Codex concentrates on, so send
 what the user is worried about, named by path and symbol.
 
+Codex's review command takes either a scope flag or custom instructions, never both. So when there
+is a focus the wrapper drops the flag and states the scope in words as the first line of the
+instructions, ahead of your focus. That is the wrapper's job and it does it from the same scope it
+would have passed as a flag: send only the focus, and never a scope sentence of your own.
+
 When the user asks for an adversarial review, prepend this block to the focus:
 
 > Assume this change is broken and find how, around the focus below. Hunt for the inputs,
