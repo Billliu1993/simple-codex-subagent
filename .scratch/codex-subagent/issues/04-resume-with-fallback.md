@@ -16,8 +16,9 @@
 - [x] Skill text tells Claude when to resume and to send only the delta
 - [x] Tests cover thread id capture, resume argv, and the fallback path
 - [x] Tests assert the `sandbox_mode` override is present on resume for both sandboxes and that the fallback fresh run uses the same sandbox
-- [ ] Smoke: a read-only run resumed with `--read-only` cannot write a file; the same thread resumed without `--read-only` can
+- [x] Smoke: a read-only run resumed with `--read-only` cannot write a file; the same thread resumed without `--read-only` can
 
 ## Comments
 
 - 2026-09-19: implemented on branch `feat/codex-subagent-plugin`, https://github.com/Billliu1993/simple-codex-subagent/pull/1. Checked items are covered by `tests/run-tests.sh` (fake codex) or by one real run during the build; unchecked items are left to the manual smoke checklist in `plugins/codex-subagent/README.md`.
+- 2026-09-19: smoke item verified live on codex-cli 0.155.1 through a project-level copy of the skill: thread 01a0bcf5-fb3d-74a1-8836-dd1b060cee42 resumed with `--read-only` and `--strict-config` had its write rejected by the sandbox ("writing is blocked by read-only sandbox"); the same thread resumed without `--read-only` wrote the file. No fallback fired in either resume.
