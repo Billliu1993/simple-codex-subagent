@@ -40,6 +40,7 @@ Four sections, in order:
    ```
 
    This writes `snapshots/codex-<installed version>/{exec,exec-resume,exec-review}.txt` and `VERSION`, and nothing else.
-5. Bump `version` in both `plugins/codex-subagent/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, keeping them identical.
+5. Update the "Verified against codex-cli x.y.z" line under "What it needs" in `plugins/codex-subagent/README.md` to the same version the snapshots now carry. That line is the only place a plugin user can see which CLI the wrapper was checked against; the snapshots are not installed.
+6. Bump `version` in both `plugins/codex-subagent/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, keeping them identical.
 
 Refreshing the snapshots without step 3 hides the drift instead of resolving it: the next run reports clean against a wrapper nobody checked.
