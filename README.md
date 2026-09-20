@@ -22,8 +22,9 @@ against those snapshots. Only the plugin subdirectory is installed.
 
 The plugin's version is the only release marker; there are no git tags. Two files carry it and
 must stay identical: `plugins/codex-subagent/.claude-plugin/plugin.json` (`version`) and the
-plugin entry in `.claude-plugin/marketplace.json`. Claude Code compares the marketplace's declared
-version with the installed copy, so `/plugin update` picks up a change only when that number moves.
+plugin entry in `.claude-plugin/marketplace.json`. On `/plugin update` Claude Code reads the plugin
+manifest's version first and the marketplace entry's only as a fallback; a stale manifest wins
+silently, so a bump that touches only the marketplace file ships nothing.
 
 Release steps, for any change under `plugins/codex-subagent/`:
 
