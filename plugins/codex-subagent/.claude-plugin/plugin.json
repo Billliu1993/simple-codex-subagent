@@ -1,5 +1,5 @@
 {
   "name": "codex-subagent",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Hand one scoped task to the locally installed OpenAI Codex CLI, always sandboxed, and return its final message to Claude."
 }

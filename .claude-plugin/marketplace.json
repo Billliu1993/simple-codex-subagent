@@ -8,7 +8,7 @@
       "name": "codex-subagent",
       "source": "./plugins/codex-subagent",
       "description": "Hand one scoped task to the locally installed OpenAI Codex CLI, always sandboxed, and return its final message to Claude.",
-      "version": "0.2.1"
+      "version": "0.2.2"
     }
   ]
 }
