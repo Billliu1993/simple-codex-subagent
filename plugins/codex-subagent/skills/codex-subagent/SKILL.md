@@ -102,11 +102,16 @@ The sandbox is chosen per call and never inherited from the thread: pass `--read
 follow-up only reads, and leave it off when it edits, judging the follow-up on its own. A read-only
 thread resumed without `--read-only` can write.
 
-A thread Codex cannot reopen is abandoned rather than retried: the wrapper prints
-`codex-subagent: resume of <id> failed before thread start; starting a fresh run` on stderr, records
-the reason in `<run dir>/resume-fallback`, and runs the same prompt as a fresh run, whose id
-`thread-id` then holds. When that file is there, tell the user the thread was lost and the result
-comes from a run that started without it — a delta-only prompt may well have been too thin for one.
+A resume that fails before Codex starts the thread is abandoned rather than retried: the wrapper
+prints `codex-subagent: resume of <id> failed before thread start; starting a fresh run` on stderr,
+records the reason in `<run dir>/resume-fallback`, and runs the same prompt as a fresh run, whose
+id `thread-id` then holds. A stale or missing thread is only one cause; a bad model name, an auth
+failure, or a transient CLI error looks the same from here. So when that file is there, tell the
+user the resume failed before the thread started and the result comes from a fresh run, and quote
+the one-line reason from `<run dir>/resume-fallback` plus the tail of `<run dir>/resume-events.jsonl`
+and `<run dir>/resume-progress.log` — the failed attempt's own files, which the wrapper keeps — so
+they can see which cause it was. A delta-only prompt may well have been too thin for a fresh run,
+which is the other half of what they need to know.
 
 ## Review
 

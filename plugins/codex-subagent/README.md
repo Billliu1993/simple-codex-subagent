@@ -123,10 +123,13 @@ whatever sandbox the thread had. The cost is that a resume also fails when your 
 `~/.codex/config.toml` holds a key this Codex version does not know; a fresh run still works, and
 the fix is to correct the config.
 
-When Codex cannot reopen the thread, the wrapper abandons it rather than retrying: it records the
-reason in `resume-fallback`, says so on stderr, and runs the same prompt as a fresh run, exiting
-with that run's status. A delta-only prompt may be thin without the thread's memory, so Claude
-reports when a result came from a fallback.
+When a resume exits non-zero before Codex starts the thread, the wrapper abandons it rather than
+retrying: it records the reason in `resume-fallback`, says so on stderr, keeps the failed attempt
+as `resume-argv`, `resume-events.jsonl` and `resume-progress.log`, and runs the same prompt as a
+fresh run, exiting with that run's status. The trigger is the failure, not a diagnosis of it — a
+stale thread, a bad model name, an auth failure and a transient CLI error all land here — so Claude
+quotes the recorded reason rather than telling the user the thread was lost. A delta-only prompt
+may be thin without the thread's memory, so Claude reports when a result came from a fallback.
 
 ## Review
 
@@ -143,6 +146,10 @@ focus unchanged, and `review-scope` gains a `delivered-as: flag` or `delivered-a
 line saying which route it took (the raw focus is kept in `focus.md`). This is the one place the
 wrapper says the diff scope in words rather than leaving it to Codex's flag, so the sentences live
 next to the flags in the wrapper and are asserted in the tests.
+
+`codex exec review` has no `--sandbox` flag either, so a review pins `sandbox_mode="read-only"` the
+same way a resume pins its sandbox, `--strict-config` included: a review reads, and it reads under
+the wrapper's sandbox rather than whatever your own Codex config would have given it.
 
 An adversarial review is the same run with the skill's canned block prepended: Codex assumes the
 change is broken and hunts for the inputs and orderings that break it. A review edits nothing, and
