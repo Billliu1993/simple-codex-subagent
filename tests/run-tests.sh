@@ -563,15 +563,21 @@ case_review_model_and_effort() {
   t2_assert_argv_pair -c 'model_reasoning_effort="medium"'
 }
 
-case_review_carries_no_sandbox() {
+# A review only reads, and says so itself: `codex exec review` has no --sandbox flag, so the
+# sandbox is pinned read-only by config override rather than inherited from the user's config, and
+# --strict-config turns a key Codex no longer knows into a failure instead of a silent inheritance.
+# Nothing overrides the network, which only applies to a workspace-write sandbox.
+case_review_pins_read_only_sandbox() {
   local forbidden recorded
   t5_write_focus "$case_dir/focus"
   t5_review "$case_dir/focus" --uncommitted
   recorded=$(cat "$t5_run_dir/argv")
-  # A review edits nothing, so it carries no sandbox and no network override -- but it searches the
-  # live web like every other run.
+  t2_assert_argv_pair -c 'sandbox_mode="read-only"'
+  assert_argv_has --strict-config
+  assert_contains "$recorded" 'sandbox_mode="read-only"' "run dir argv records the read-only sandbox"
+  # It searches the live web like every other run.
   t2_assert_argv_pair -c 'web_search="live"'
-  for forbidden in --sandbox sandbox_mode sandbox_workspace_write network_access; do
+  for forbidden in --sandbox sandbox_workspace_write network_access; do
     assert_argv_lacks "$forbidden"
     assert_not_contains "$recorded" "$forbidden" "run dir argv lacks $forbidden"
   done
@@ -772,6 +778,21 @@ case_resume_fallback_read_only() {
   t4_fallback_case read-only --read-only
 }
 
+# A fallback does not swallow the failure that follows it: the status the wrapper exits with, and
+# the one it records, are the fresh run's, not the abandoned resume's and not a success.
+case_resume_fallback_keeps_the_fresh_runs_failure() {
+  export FAKE_CODEX_RESUME_EXIT=1
+  export FAKE_CODEX_RESUME_EMIT_THREAD=0
+  export FAKE_CODEX_EXIT=5
+  t4_write_prompt "$case_dir/prompt"
+  t4_run "$case_dir/prompt" --resume "$t4_thread"
+
+  assert_eq 2 "$(t4_invocations)" "the abandoned resume and the failing fresh run are both invoked"
+  assert_file_exists "$t4_run_dir/resume-fallback" "the run dir records the abandoned resume"
+  assert_eq 5 "$t4_status" "the wrapper exits with the fresh run's status, not the resume's"
+  assert_eq 5 "$(cat "$t4_run_dir/exit-code" 2>/dev/null)" "exit-code records the fresh run's 5"
+}
+
 # A resume that fails after its thread started is an ordinary failed run, not a stale thread.
 case_resume_failure_after_thread_start() {
   export FAKE_CODEX_RESUME_EXIT=2
@@ -793,9 +814,11 @@ case_resume_failure_after_thread_start() {
 
 # --- fix pass ---
 
-# An unrecognised config key is only rejected under --strict-config, and the resume's sandbox
-# travels as a config key: without it a renamed key would silently leave the sandbox to the thread.
-case_strict_config_on_resume_only() {
+# An unrecognised config key is only rejected under --strict-config, and that is how the sandbox
+# travels on both forms that have no --sandbox flag: without it a renamed key would silently leave
+# the sandbox to the thread on a resume and to the user's config on a review. A fresh run carries
+# the sandbox as a real flag, so it needs no such guard.
+case_strict_config_where_the_sandbox_is_config() {
   t4_write_prompt "$case_dir/prompt"
 
   t4_run "$case_dir/prompt"
@@ -806,7 +829,7 @@ case_strict_config_on_resume_only() {
 
   t5_write_focus "$case_dir/focus"
   t5_review "$case_dir/focus" --uncommitted
-  assert_argv_lacks --strict-config
+  assert_argv_has --strict-config
 }
 
 # An event that merely mentions a thread id is not a thread that started: nothing is recorded as
@@ -922,6 +945,10 @@ case_review_focus_with_uncommitted() {
   assert_eq 0 "$t5_status" "--uncommitted with a focus exits 0"
   rf_assert_no_scope_flag
   rf_assert_stdin "$case_dir/focus" --uncommitted
+  # Dropping the scope flag drops nothing else: the read-only sandbox is pinned on this delivery
+  # route too.
+  t2_assert_argv_pair -c 'sandbox_mode="read-only"'
+  assert_argv_has --strict-config
 }
 
 case_review_focus_with_base() {
@@ -1033,7 +1060,7 @@ run_case case_review_default_scope_origin_head
 run_case case_review_focus_on_stdin
 run_case case_review_empty_focus
 run_case case_review_model_and_effort
-run_case case_review_carries_no_sandbox
+run_case case_review_pins_read_only_sandbox
 run_case case_review_run_directory_contents
 run_case case_review_passes_through_exit_code
 
@@ -1044,10 +1071,11 @@ run_case case_resume_sandbox_read_only
 run_case case_resume_sandbox_workspace_write
 run_case case_resume_fallback_workspace_write
 run_case case_resume_fallback_read_only
+run_case case_resume_fallback_keeps_the_fresh_runs_failure
 run_case case_resume_failure_after_thread_start
 
 # fix pass
-run_case case_strict_config_on_resume_only
+run_case case_strict_config_where_the_sandbox_is_config
 run_case case_thread_id_needs_thread_started
 run_case case_flag_value_that_is_a_flag
 run_case case_plugin_names_no_model
