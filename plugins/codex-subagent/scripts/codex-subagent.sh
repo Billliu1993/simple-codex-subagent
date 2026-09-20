@@ -114,9 +114,67 @@ make_run_dir() {
   printf '%s\n' "$run_dir"
 }
 
-# --- ticket 02 fills this ---
+# Buffer stdin to a file: stdin can only be read once, and a resume that falls back to a fresh run
+# needs the same prompt a second time. Calling this twice keeps the first read.
+read_prompt_to_file() {
+  if [[ ! -f $run_dir/prompt.md ]]; then
+    cat >"$run_dir/prompt.md"
+  fi
+}
+
+# The exact argv handed to codex, one argument per line, for debugging and for the user.
+write_argv() { # write_argv <arg>...
+  local arg
+  : >"$run_dir/argv"
+  for arg in "$@"; do
+    printf '%s\n' "$arg" >>"$run_dir/argv"
+  done
+}
+
+# Codex's first JSONL event carries the thread id. Parsed tolerantly, so no jq is needed.
+# Returns non-zero when no thread ever started, which is what a resume fallback keys on.
+capture_thread_id() {
+  local line id
+  line=$(grep -m1 'thread_id' "$run_dir/events.jsonl" 2>/dev/null) || return 1
+  id=$(printf '%s\n' "$line" |
+    sed -n 's/.*"thread_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  [[ -n $id ]] || return 1
+  printf '%s\n' "$id" >"$run_dir/thread-id"
+}
+
+record_result() { # record_result <exit-code>
+  printf '%s\n' "$1" >"$run_dir/exit-code"
+}
+
+# One codex invocation, run to completion: stdin from the buffered prompt, JSONL events and the
+# progress log into the run directory, the pid recorded while it runs, the thread id and the exit
+# code recorded after. Returns Codex's own status; `|| status=$?` keeps set -e from swallowing it.
+invoke_codex() { # invoke_codex codex <arg>...
+  local status=0 codex_pid
+  write_argv "$@"
+  "$@" <"$run_dir/prompt.md" >"$run_dir/events.jsonl" 2>"$run_dir/progress.log" &
+  codex_pid=$!
+  printf '%s\n' "$codex_pid" >"$run_dir/pid"
+  wait "$codex_pid" || status=$?
+  capture_thread_id || true
+  record_result "$status"
+  return "$status"
+}
+
 run_fresh() {
-  die 70 "run: not implemented yet"
+  read_prompt_to_file
+  local status=0
+  invoke_codex codex exec \
+    --sandbox "$sandbox" \
+    -m "$model" \
+    -c "model_reasoning_effort=\"$effort\"" \
+    -c 'web_search="live"' \
+    -c 'sandbox_workspace_write.network_access=true' \
+    -C "$git_toplevel" \
+    --json \
+    -o "$run_dir/final-message.md" \
+    - || status=$?
+  return "$status"
 }
 
 # --- ticket 04 fills this ---
@@ -134,13 +192,15 @@ main() {
   check_preconditions
   make_run_dir
 
+  local status=0
   if [[ $subcommand == review ]]; then
-    run_review
+    run_review || status=$?
   elif [[ -n $resume_id ]]; then
-    run_resume
+    run_resume || status=$?
   else
-    run_fresh
+    run_fresh || status=$?
   fi
+  exit "$status"
 }
 
 main "$@"
