@@ -434,19 +434,19 @@ t5_dirty_the_tree() {
   printf 'edited\n' >>seed.txt
 }
 
-# The scope reaches codex as its own argv entries, and the run dir records it for the user.
+# Which scope the wrapper settled on. Every case using this sends a non-empty focus, and Codex
+# refuses a scope flag together with custom instructions, so the scope does not reach codex as
+# argv here -- the run dir's record of it is what stays observable. The argv side of the same
+# choice is asserted under "review focus vs scope" below.
 t5_assert_scope() { # t5_assert_scope <flag> [value]
-  local argv_file
+  local argv_file expected
   argv_file=$(latest_argv_file)
   assert_eq exec "$(sed -n 1p "$argv_file")" "first argument is exec"
   assert_eq review "$(sed -n 2p "$argv_file")" "second argument is review"
-  if (($# >= 2)); then
-    assert_argv_has "$1" "$2"
-  else
-    assert_argv_has "$1"
-  fi
+  assert_argv_lacks "$1"
   # One argument per line, so a branch name with a space stays one argument here too.
-  assert_eq "$(printf '%s\n' "$@")" "$(cat "$t5_run_dir/review-scope")" \
+  expected=$(printf '%s\n' "$@" "delivered-as: instructions")
+  assert_eq "$expected" "$(cat "$t5_run_dir/review-scope")" \
     "review-scope records '$*'"
 }
 
@@ -522,16 +522,23 @@ case_review_focus_on_stdin() {
   t5_write_focus "$case_dir/focus"
   t5_review "$case_dir/focus" --uncommitted
   argv_file=$(latest_argv_file)
-  assert_eq '-' "$(tail -n1 "$argv_file")" "last argument is - so the focus comes from stdin"
-  if cmp -s "$case_dir/focus" "$FAKE_CODEX_RECORD_DIR/stdin.1"; then
-    pass "focus bytes reach codex stdin unchanged"
+  assert_eq '-' "$(tail -n1 "$argv_file")" "last argument is - so the instructions come from stdin"
+  # The focus is composed into the instructions (scope line, blank line, focus), so what reaches
+  # stdin is prompt.md; the focus itself is kept beside it, byte for byte, as it arrived.
+  if cmp -s "$case_dir/focus" "$t5_run_dir/focus.md"; then
+    pass "the focus is buffered to the run dir unchanged"
   else
-    fail "focus bytes reach codex stdin unchanged"
+    fail "the focus is buffered to the run dir unchanged"
   fi
-  if cmp -s "$case_dir/focus" "$t5_run_dir/prompt.md"; then
-    pass "focus is buffered to the run dir unchanged"
+  if cmp -s "$t5_run_dir/prompt.md" "$FAKE_CODEX_RECORD_DIR/stdin.1"; then
+    pass "prompt.md is what reaches codex stdin, byte for byte"
   else
-    fail "focus is buffered to the run dir unchanged"
+    fail "prompt.md is what reaches codex stdin, byte for byte"
+  fi
+  if tail -n +3 "$FAKE_CODEX_RECORD_DIR/stdin.1" | cmp -s - "$case_dir/focus"; then
+    pass "focus bytes reach codex stdin unchanged, after the scope line"
+  else
+    fail "focus bytes reach codex stdin unchanged, after the scope line"
   fi
 }
 
@@ -861,6 +868,138 @@ case_plugin_names_no_model() {
   assert_eq "" "$hits" "no file under plugins/ names a model"
 }
 
+# --- review focus vs scope ---
+#
+# codex-cli 0.155.1 treats the positional PROMPT of `codex exec review` as a fourth scope preset,
+# mutually exclusive with `--uncommitted`, `--base` and `--commit`: passing a scope flag and a
+# prompt together fails in argument parsing and nothing runs. So a review states its scope as a
+# flag or in words, never both. The scope sentences are spelled out here rather than sourced from
+# the wrapper, so a change to the wording has to be made deliberately in both places.
+
+rf_scope_line() { # rf_scope_line <flag> [value]
+  case "$1" in
+    --uncommitted)
+      printf 'Review the uncommitted changes in the working tree: staged, unstaged, and untracked files.\n'
+      ;;
+    --base)
+      printf 'Review the changes on the current branch relative to the base branch %s, i.e. the diff %s...HEAD.\n' \
+        "$2" "$2"
+      ;;
+    --commit)
+      printf 'Review the changes introduced by commit %s.\n' "$2"
+      ;;
+  esac
+}
+
+# What codex should read on stdin: the scope line, a blank line, then the focus bytes unchanged.
+rf_assert_stdin() { # rf_assert_stdin <focus-file> <flag> [value]
+  local focus=$1
+  shift
+  {
+    rf_scope_line "$@"
+    printf '\n'
+    cat "$focus"
+  } >"$case_dir/expected-stdin"
+  if cmp -s "$case_dir/expected-stdin" "$FAKE_CODEX_RECORD_DIR/stdin.1"; then
+    pass "stdin is the '$*' scope line, a blank line, then the focus"
+  else
+    fail "stdin is the '$*' scope line, a blank line, then the focus"
+  fi
+}
+
+# A focused review carries no scope flag at all, and ends with `-` so codex reads the composed
+# instructions from stdin.
+rf_assert_no_scope_flag() {
+  assert_argv_lacks --uncommitted
+  assert_argv_lacks --base
+  assert_argv_lacks --commit
+  assert_eq '-' "$(tail -n1 "$(latest_argv_file)")" "argv ends with -"
+}
+
+case_review_focus_with_uncommitted() {
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --uncommitted
+  assert_eq 0 "$t5_status" "--uncommitted with a focus exits 0"
+  rf_assert_no_scope_flag
+  rf_assert_stdin "$case_dir/focus" --uncommitted
+}
+
+case_review_focus_with_base() {
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --base release-2
+  assert_eq 0 "$t5_status" "--base with a focus exits 0"
+  rf_assert_no_scope_flag
+  assert_argv_lacks release-2
+  rf_assert_stdin "$case_dir/focus" --base release-2
+}
+
+case_review_focus_with_commit() {
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --commit abc123
+  assert_eq 0 "$t5_status" "--commit with a focus exits 0"
+  rf_assert_no_scope_flag
+  assert_argv_lacks abc123
+  rf_assert_stdin "$case_dir/focus" --commit abc123
+}
+
+# The default scope still comes from the tree; only how it is delivered changes.
+case_review_focus_default_scope_dirty() {
+  t5_write_focus "$case_dir/focus"
+  t5_dirty_the_tree
+  t5_review "$case_dir/focus"
+  assert_eq 0 "$t5_status" "a focused review with no scope flag exits 0"
+  rf_assert_no_scope_flag
+  assert_eq "$(rf_scope_line --uncommitted)" "$(head -n1 "$FAKE_CODEX_RECORD_DIR/stdin.1")" \
+    "a dirty tree opens the instructions with the uncommitted scope line"
+  rf_assert_stdin "$case_dir/focus" --uncommitted
+}
+
+case_review_focus_default_scope_clean() {
+  local branch
+  branch=$(git rev-parse --abbrev-ref HEAD)
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus"
+  assert_eq 0 "$t5_status" "a focused review of a clean tree exits 0"
+  rf_assert_no_scope_flag
+  assert_contains "$(head -n1 "$FAKE_CODEX_RECORD_DIR/stdin.1")" "$branch" \
+    "the scope line names the resolved default branch"
+  rf_assert_stdin "$case_dir/focus" --base "$branch"
+}
+
+# With no focus there are no custom instructions to collide with, so the flag travels as a flag.
+case_review_empty_focus_keeps_the_flag() {
+  : >"$case_dir/focus"
+  t5_review "$case_dir/focus" --base main
+  assert_eq 0 "$t5_status" "an empty focus with --base exits 0"
+  assert_argv_has --base main
+  if grep -Fxq -- '-' "$(latest_argv_file)"; then
+    fail "an empty focus sends no bare - argument"
+  else
+    pass "an empty focus sends no bare - argument"
+  fi
+  assert_eq 0 "$(wc -c <"$FAKE_CODEX_RECORD_DIR/stdin.1" | tr -d ' ')" "codex gets empty stdin"
+}
+
+# The run dir says both what was reviewed and how the scope got there, and keeps the raw focus
+# only when there was one.
+case_review_scope_records_delivery() {
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --commit abc123
+  assert_eq "$(printf '%s\n' --commit abc123 'delivered-as: instructions')" \
+    "$(cat "$t5_run_dir/review-scope")" "review-scope records the scope and 'instructions'"
+  assert_file_exists "$t5_run_dir/focus.md" "the raw focus is kept beside the composed prompt"
+
+  : >"$case_dir/empty-focus"
+  t5_review "$case_dir/empty-focus" --commit abc123
+  assert_eq "$(printf '%s\n' --commit abc123 'delivered-as: flag')" \
+    "$(cat "$t5_run_dir/review-scope")" "review-scope records the scope and 'flag'"
+  if [[ -e "$t5_run_dir/focus.md" ]]; then
+    fail "no focus.md is written when there is no focus"
+  else
+    pass "no focus.md is written when there is no focus"
+  fi
+}
+
 # --- run the cases ---
 
 # ticket 01
@@ -912,6 +1051,14 @@ run_case case_strict_config_on_resume_only
 run_case case_thread_id_needs_thread_started
 run_case case_flag_value_that_is_a_flag
 run_case case_plugin_names_no_model
+
+run_case case_review_focus_with_uncommitted
+run_case case_review_focus_with_base
+run_case case_review_focus_with_commit
+run_case case_review_focus_default_scope_dirty
+run_case case_review_focus_default_scope_clean
+run_case case_review_empty_focus_keeps_the_flag
+run_case case_review_scope_records_delivery
 
 printf 'PASS: %s FAIL: %s\n' "$pass_count" "$fail_count"
 ((fail_count == 0)) || exit 1
