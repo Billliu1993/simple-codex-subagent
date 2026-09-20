@@ -188,6 +188,145 @@ case_wrapper_has_no_bypass() {
   done
 }
 
+# --- ticket 02 ---
+
+t2_status=0
+t2_run_dir=""
+
+# Quotes, a shell variable, backticks, a non-ASCII character and a trailing newline: anything a
+# layer of shell quoting would mangle on the way to Codex.
+t2_write_prompt() { # t2_write_prompt <path>
+  printf '%s\n' 'He said "hi"; $VAR stays literal, `date` too — café.' >"$1"
+}
+
+t2_run() { # t2_run <prompt-file> [extra wrapper args...]
+  local prompt=$1
+  shift
+  bash "$WRAPPER" run --model test-model --effort high "$@" \
+    <"$prompt" >"$case_dir/out" 2>"$case_dir/err"
+  t2_status=$?
+  t2_run_dir=$(head -n1 "$case_dir/out")
+}
+
+t2_assert_argv_pair() { # t2_assert_argv_pair <flag> <value>: value present and preceded by flag
+  local argv_file line_no
+  argv_file=$(latest_argv_file)
+  line_no=$(grep -Fxn -- "$2" "$argv_file" 2>/dev/null | head -n1 | cut -d: -f1)
+  if [[ -z "$line_no" ]]; then
+    fail "argv has $1 $2 (no such argument)"
+    return
+  fi
+  assert_eq "$1" "$(sed -n "$((line_no - 1))p" "$argv_file")" "argv has $1 $2"
+}
+
+t2_forbidden_args() {
+  printf '%s\n' --ask-for-approval --ephemeral --dangerously-bypass-approvals-and-sandbox \
+    --dangerously-bypass-hook-trust danger-full-access --add-dir --approve-for-me \
+    --worktree --search --skip-git-repo-check
+}
+
+case_run_read_only_sandbox() {
+  t2_write_prompt "$case_dir/prompt"
+  t2_run "$case_dir/prompt" --read-only
+  assert_eq 0 "$t2_status" "read-only run exits 0"
+  assert_argv_has --sandbox read-only
+}
+
+case_run_default_sandbox() {
+  t2_write_prompt "$case_dir/prompt"
+  t2_run "$case_dir/prompt"
+  assert_eq 0 "$t2_status" "default run exits 0"
+  assert_argv_has --sandbox workspace-write
+}
+
+case_run_overrides() {
+  local toplevel argv_file
+  toplevel=$(git rev-parse --show-toplevel)
+  t2_write_prompt "$case_dir/prompt"
+  t2_run "$case_dir/prompt"
+  argv_file=$(latest_argv_file)
+
+  assert_eq exec "$(sed -n 1p "$argv_file")" "first argument is exec"
+  assert_argv_has -m test-model
+  assert_argv_has -C "$toplevel"
+  assert_argv_has --json
+  assert_argv_has -o "$t2_run_dir/final-message.md"
+  t2_assert_argv_pair -c 'model_reasoning_effort="high"'
+  t2_assert_argv_pair -c 'web_search="live"'
+  t2_assert_argv_pair -c 'sandbox_workspace_write.network_access=true'
+  assert_eq '-' "$(tail -n1 "$argv_file")" "last argument is - so the prompt comes from stdin"
+}
+
+case_run_carries_no_bypass() {
+  local forbidden recorded
+  t2_write_prompt "$case_dir/prompt"
+  t2_run "$case_dir/prompt"
+  recorded=$(cat "$t2_run_dir/argv")
+  while read -r forbidden; do
+    assert_argv_lacks "$forbidden"
+    assert_not_contains "$recorded" "$forbidden" "run dir argv lacks $forbidden"
+  done < <(t2_forbidden_args)
+}
+
+case_run_stdin_byte_for_byte() {
+  t2_write_prompt "$case_dir/prompt"
+  t2_run "$case_dir/prompt"
+  if cmp -s "$case_dir/prompt" "$FAKE_CODEX_RECORD_DIR/stdin.1"; then
+    pass "prompt bytes reach codex stdin unchanged"
+  else
+    fail "prompt bytes reach codex stdin unchanged"
+  fi
+  if cmp -s "$case_dir/prompt" "$t2_run_dir/prompt.md"; then
+    pass "prompt is buffered to the run dir unchanged"
+  else
+    fail "prompt is buffered to the run dir unchanged"
+  fi
+}
+
+case_run_directory_contents() {
+  local name
+  export FAKE_CODEX_THREAD_ID="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+  export FAKE_CODEX_FINAL_MESSAGE="done and dusted"
+  t2_write_prompt "$case_dir/prompt"
+  t2_run "$case_dir/prompt"
+
+  for name in progress.log events.jsonl final-message.md pid thread-id exit-code argv prompt.md; do
+    assert_file_exists "$t2_run_dir/$name" "run dir has $name"
+  done
+  assert_eq "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" "$(cat "$t2_run_dir/thread-id")" \
+    "thread-id is the id from the event stream"
+  assert_eq 0 "$(cat "$t2_run_dir/exit-code")" "exit-code records 0"
+  assert_contains "$(cat "$t2_run_dir/final-message.md")" "done and dusted" "final message is written"
+  assert_contains "$(cat "$t2_run_dir/progress.log")" "fake-codex" "progress log holds codex stderr"
+  assert_contains "$(cat "$t2_run_dir/events.jsonl")" "thread.started" "events.jsonl holds codex stdout"
+  assert_eq "$(cat "$t2_run_dir/pid")" "$(cat "$t2_run_dir/pid" | tr -cd '0-9')" "pid file holds a number"
+}
+
+case_run_prints_run_dir_first() {
+  t2_write_prompt "$case_dir/prompt"
+  t2_run "$case_dir/prompt"
+  if [[ -d "$t2_run_dir" ]]; then
+    pass "first stdout line is the run directory"
+  else
+    fail "first stdout line is the run directory (got '$t2_run_dir')"
+  fi
+  assert_eq 1 "$(wc -l <"$case_dir/out" | tr -d ' ')" "stdout is that one line"
+  assert_contains "$t2_run_dir" "$TMPDIR/codex-subagent/" "run directory sits under the temp root"
+}
+
+case_run_passes_through_exit_code() {
+  t2_write_prompt "$case_dir/prompt"
+
+  export FAKE_CODEX_EXIT=0
+  t2_run "$case_dir/prompt"
+  assert_eq 0 "$t2_status" "wrapper exits 0 when codex exits 0"
+
+  export FAKE_CODEX_EXIT=3
+  t2_run "$case_dir/prompt"
+  assert_eq 3 "$t2_status" "wrapper exits 3 when codex exits 3"
+  assert_eq 3 "$(cat "$t2_run_dir/exit-code")" "exit-code records 3"
+}
+
 # --- run the cases ---
 
 # ticket 01
@@ -196,6 +335,16 @@ run_case case_missing_model
 run_case case_missing_effort
 run_case case_terminal_stdin
 run_case case_wrapper_has_no_bypass
+
+# ticket 02
+run_case case_run_read_only_sandbox
+run_case case_run_default_sandbox
+run_case case_run_overrides
+run_case case_run_carries_no_bypass
+run_case case_run_stdin_byte_for_byte
+run_case case_run_directory_contents
+run_case case_run_prints_run_dir_first
+run_case case_run_passes_through_exit_code
 
 printf 'PASS: %s FAIL: %s\n' "$pass_count" "$fail_count"
 ((fail_count == 0)) || exit 1
