@@ -327,6 +327,89 @@ case_run_passes_through_exit_code() {
   assert_eq 3 "$(cat "$t2_run_dir/exit-code")" "exit-code records 3"
 }
 
+# --- ticket 03 ---
+
+# The status check, copied verbatim from the "Status check" section of SKILL.md, so this test
+# covers the command as documented. Only two things change in the copy: the snippet's first line
+# (`d=<run dir>`) becomes this function's argument, and the body is indented into the function.
+# Keep the two in step: an edit to the skill's snippet is an edit here.
+t3_status_check() { # t3_status_check <run dir>
+  local d=$1
+  pid=$(cat "$d/pid")
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "pid $pid: alive"
+  else
+    echo "pid $pid: exited, exit code $(cat "$d/exit-code" 2>/dev/null || echo 'not recorded')"
+  fi
+  newest=0
+  for f in "$d/events.jsonl" "$d/progress.log"; do
+    # GNU stat first: BSD stat rejects -c, and BSD's -f prints a mount point under GNU.
+    m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null) || m=0
+    [ "$m" -gt "$newest" ] && newest=$m
+  done
+  echo "seconds since the log last moved: $(( $(date +%s) - newest ))"
+  for f in "$d/events.jsonl" "$d/progress.log"; do
+    if [ -s "$f" ]; then
+      echo "--- tail $f"
+      tail -n 5 "$f"
+    fi
+  done
+}
+
+t3_seconds_since() { # t3_seconds_since <check output>
+  printf '%s\n' "$1" | sed -n 's/^seconds since the log last moved: //p'
+}
+
+case_status_check_mid_run_and_after() {
+  local wrapper_pid run_dir="" mid after status secs i
+
+  printf 'watch me work\n' >"$case_dir/prompt"
+  export FAKE_CODEX_SLEEP=3
+  bash "$WRAPPER" run --model test-model --effort high \
+    <"$case_dir/prompt" >"$case_dir/out" 2>"$case_dir/err" &
+  wrapper_pid=$!
+
+  # The run directory is the wrapper's first stdout line; the pid file appears once codex starts.
+  for i in $(seq 1 100); do
+    run_dir=$(head -n1 "$case_dir/out" 2>/dev/null)
+    [[ -n "$run_dir" && -f "$run_dir/pid" ]] && break
+    sleep 0.1
+  done
+  if [[ -z "$run_dir" || ! -f "$run_dir/pid" ]]; then
+    fail "run directory with a pid file appears while the run is live"
+    wait "$wrapper_pid"
+    return
+  fi
+  pass "run directory with a pid file appears while the run is live"
+
+  mid=$(t3_status_check "$run_dir")
+  assert_contains "$mid" "alive" "mid-run check reports the pid alive"
+  assert_not_contains "$mid" "exited" "mid-run check does not report an exit"
+  secs=$(t3_seconds_since "$mid")
+  if [[ -n "$secs" ]] && ((secs >= 0 && secs < 10)); then
+    pass "mid-run check reports a fresh log (${secs}s since it moved)"
+  else
+    fail "mid-run check reports a fresh log (got '$secs')"
+  fi
+
+  wait "$wrapper_pid"
+  status=$?
+  assert_eq 0 "$status" "the sleeping run exits 0"
+
+  after=$(t3_status_check "$run_dir")
+  assert_contains "$after" "exited" "check after the run reports the pid exited"
+  assert_contains "$after" "exit code 0" "check after the run shows the recorded exit code"
+  assert_contains "$after" "--- tail $run_dir/events.jsonl" "check tails events.jsonl"
+  assert_contains "$after" "thread.started" "events tail shows the event stream"
+  assert_contains "$after" "--- tail $run_dir/progress.log" "check tails progress.log"
+  assert_contains "$after" "fake-codex: progress 3" "progress tail shows the last stderr lines"
+  if [[ -n "$(t3_seconds_since "$after")" ]]; then
+    pass "check after the run still reports seconds since the log moved"
+  else
+    fail "check after the run still reports seconds since the log moved"
+  fi
+}
+
 # --- run the cases ---
 
 # ticket 01
@@ -345,6 +428,9 @@ run_case case_run_stdin_byte_for_byte
 run_case case_run_directory_contents
 run_case case_run_prints_run_dir_first
 run_case case_run_passes_through_exit_code
+
+# ticket 03
+run_case case_status_check_mid_run_and_after
 
 printf 'PASS: %s FAIL: %s\n' "$pass_count" "$fail_count"
 ((fail_count == 0)) || exit 1
