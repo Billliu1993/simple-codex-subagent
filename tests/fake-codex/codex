@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+#
+# Fake `codex` for the test suite. Placed first on PATH so nothing ever reaches the real CLI.
+# Records each invocation's argv and stdin, then behaves as the environment tells it to:
+#
+#   FAKE_CODEX_RECORD_DIR       required; gets argv.N, stdin.N and a `count` file
+#   FAKE_CODEX_EXIT             exit code for a fresh exec/review invocation (default 0)
+#   FAKE_CODEX_RESUME_EXIT      exit code for a resume invocation (default $FAKE_CODEX_EXIT)
+#   FAKE_CODEX_RESUME_EMIT_THREAD  0 to emit no thread.started on a resume (default 1)
+#   FAKE_CODEX_THREAD_ID        the thread id in the thread.started event
+#   FAKE_CODEX_FINAL_MESSAGE    written to the -o / --output-last-message file
+#   FAKE_CODEX_SLEEP            seconds to sleep, one progress line to stderr per second
+
+set -uo pipefail
+
+record_dir=${FAKE_CODEX_RECORD_DIR:-}
+if [[ -z $record_dir ]]; then
+  printf 'fake-codex: FAKE_CODEX_RECORD_DIR is not set\n' >&2
+  exit 99
+fi
+mkdir -p "$record_dir"
+
+count_file="$record_dir/count"
+n=0
+if [[ -f $count_file ]]; then
+  n=$(cat "$count_file")
+fi
+n=$((n + 1))
+printf '%s\n' "$n" >"$count_file"
+
+argv_file="$record_dir/argv.$n"
+: >"$argv_file"
+for arg in "$@"; do
+  printf '%s\n' "$arg" >>"$argv_file"
+done
+cat >"$record_dir/stdin.$n"
+
+is_resume=0
+[[ ${2:-} == resume ]] && is_resume=1
+
+has_json=0
+out_file=""
+prev=""
+for arg in "$@"; do
+  case "$arg" in
+    --json) has_json=1 ;;
+    --output-last-message=*) out_file=${arg#*=} ;;
+  esac
+  if [[ $prev == -o || $prev == --output-last-message ]]; then
+    out_file=$arg
+  fi
+  prev=$arg
+done
+
+exit_code=${FAKE_CODEX_EXIT:-0}
+if ((is_resume)); then
+  exit_code=${FAKE_CODEX_RESUME_EXIT:-$exit_code}
+fi
+
+emit_thread=1
+if ((is_resume)) && [[ ${FAKE_CODEX_RESUME_EMIT_THREAD:-1} == 0 ]]; then
+  emit_thread=0
+fi
+
+printf 'fake-codex: invocation %s starting\n' "$n" >&2
+
+if ((has_json)) && ((emit_thread)); then
+  printf '{"type":"thread.started","thread_id":"%s"}\n' \
+    "${FAKE_CODEX_THREAD_ID:-11111111-2222-3333-4444-555555555555}"
+fi
+
+sleep_secs=${FAKE_CODEX_SLEEP:-0}
+i=0
+while ((i < sleep_secs)); do
+  sleep 1
+  i=$((i + 1))
+  printf 'fake-codex: progress %s\n' "$i" >&2
+done
+
+if [[ -n $out_file ]]; then
+  printf '%s\n' "${FAKE_CODEX_FINAL_MESSAGE:-fake final message}" >"$out_file"
+fi
+
+printf 'fake-codex: invocation %s done\n' "$n" >&2
+exit "$exit_code"
