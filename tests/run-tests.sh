@@ -113,6 +113,7 @@ setup_case() { # setup_case <name>
 
   unset FAKE_CODEX_EXIT FAKE_CODEX_RESUME_EXIT FAKE_CODEX_RESUME_EMIT_THREAD
   unset FAKE_CODEX_THREAD_ID FAKE_CODEX_FINAL_MESSAGE FAKE_CODEX_SLEEP
+  unset FAKE_CODEX_FAKE_THREAD_EVENT
   export FAKE_CODEX_RECORD_DIR="$case_dir/record"
   export TMPDIR="$case_dir/tmp"
 
@@ -434,38 +435,40 @@ t5_dirty_the_tree() {
 }
 
 # The scope reaches codex as its own argv entries, and the run dir records it for the user.
-t5_assert_scope() { # t5_assert_scope <recorded-scope> <flag> [value]
+t5_assert_scope() { # t5_assert_scope <flag> [value]
   local argv_file
   argv_file=$(latest_argv_file)
   assert_eq exec "$(sed -n 1p "$argv_file")" "first argument is exec"
   assert_eq review "$(sed -n 2p "$argv_file")" "second argument is review"
-  if (($# >= 3)); then
-    assert_argv_has "$2" "$3"
+  if (($# >= 2)); then
+    assert_argv_has "$1" "$2"
   else
-    assert_argv_has "$2"
+    assert_argv_has "$1"
   fi
-  assert_eq "$1" "$(cat "$t5_run_dir/review-scope")" "review-scope records '$1'"
+  # One argument per line, so a branch name with a space stays one argument here too.
+  assert_eq "$(printf '%s\n' "$@")" "$(cat "$t5_run_dir/review-scope")" \
+    "review-scope records '$*'"
 }
 
 case_review_scope_uncommitted() {
   t5_write_focus "$case_dir/focus"
   t5_review "$case_dir/focus" --uncommitted
   assert_eq 0 "$t5_status" "review --uncommitted exits 0"
-  t5_assert_scope "--uncommitted" --uncommitted
+  t5_assert_scope --uncommitted
 }
 
 case_review_scope_base() {
   t5_write_focus "$case_dir/focus"
   t5_review "$case_dir/focus" --base foo
   assert_eq 0 "$t5_status" "review --base exits 0"
-  t5_assert_scope "--base foo" --base foo
+  t5_assert_scope --base foo
 }
 
 case_review_scope_commit() {
   t5_write_focus "$case_dir/focus"
   t5_review "$case_dir/focus" --commit abc123
   assert_eq 0 "$t5_status" "review --commit exits 0"
-  t5_assert_scope "--commit abc123" --commit abc123
+  t5_assert_scope --commit abc123
 }
 
 case_review_conflicting_scopes() {
@@ -491,7 +494,7 @@ case_review_default_scope_dirty() {
   t5_dirty_the_tree
   t5_review "$case_dir/focus"
   assert_eq 0 "$t5_status" "review with no scope exits 0"
-  t5_assert_scope "--uncommitted" --uncommitted
+  t5_assert_scope --uncommitted
   assert_argv_lacks "--base"
 }
 
@@ -501,7 +504,7 @@ case_review_default_scope_clean() {
   t5_write_focus "$case_dir/focus"
   t5_review "$case_dir/focus"
   assert_eq 0 "$t5_status" "review of a clean tree exits 0"
-  t5_assert_scope "--base $branch" --base "$branch"
+  t5_assert_scope --base "$branch"
   assert_argv_lacks "--uncommitted"
 }
 
@@ -511,7 +514,7 @@ case_review_default_scope_origin_head() {
   t5_write_focus "$case_dir/focus"
   t5_review "$case_dir/focus"
   assert_eq 0 "$t5_status" "review against origin/HEAD exits 0"
-  t5_assert_scope "--base origin/develop" --base origin/develop
+  t5_assert_scope --base origin/develop
 }
 
 case_review_focus_on_stdin() {
@@ -558,7 +561,10 @@ case_review_carries_no_sandbox() {
   t5_write_focus "$case_dir/focus"
   t5_review "$case_dir/focus" --uncommitted
   recorded=$(cat "$t5_run_dir/argv")
-  for forbidden in --sandbox sandbox_mode sandbox_workspace_write web_search network_access; do
+  # A review edits nothing, so it carries no sandbox and no network override -- but it searches the
+  # live web like every other run.
+  t2_assert_argv_pair -c 'web_search="live"'
+  for forbidden in --sandbox sandbox_mode sandbox_workspace_write network_access; do
     assert_argv_lacks "$forbidden"
     assert_not_contains "$recorded" "$forbidden" "run dir argv lacks $forbidden"
   done
@@ -778,6 +784,83 @@ case_resume_failure_after_thread_start() {
   assert_eq 2 "$(cat "$t4_run_dir/exit-code" 2>/dev/null)" "exit-code records 2"
 }
 
+# --- fix pass ---
+
+# An unrecognised config key is only rejected under --strict-config, and the resume's sandbox
+# travels as a config key: without it a renamed key would silently leave the sandbox to the thread.
+case_strict_config_on_resume_only() {
+  t4_write_prompt "$case_dir/prompt"
+
+  t4_run "$case_dir/prompt"
+  assert_argv_lacks --strict-config
+
+  t4_run "$case_dir/prompt" --resume "$t4_thread"
+  assert_argv_has --strict-config
+
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --uncommitted
+  assert_argv_lacks --strict-config
+}
+
+# An event that merely mentions a thread id is not a thread that started: nothing is recorded as
+# the thread, and a resume that dies with only such an event still falls back to a fresh run.
+case_thread_id_needs_thread_started() {
+  export FAKE_CODEX_FAKE_THREAD_EVENT=1
+  export FAKE_CODEX_RESUME_EXIT=1
+  t4_write_prompt "$case_dir/prompt"
+
+  t4_run "$case_dir/prompt"
+  assert_contains "$(cat "$t4_run_dir/events.jsonl")" "thread_id" "the fake event carries a thread id"
+  if [[ -e "$t4_run_dir/thread-id" ]]; then
+    fail "no thread-id is recorded from an event that is not thread.started"
+  else
+    pass "no thread-id is recorded from an event that is not thread.started"
+  fi
+
+  t4_run "$case_dir/prompt" --resume "$t4_thread"
+  assert_file_exists "$t4_run_dir/resume-fallback" "the resume falls back to a fresh run"
+  assert_contains "$(cat "$case_dir/err")" "starting a fresh run" "stderr says the resume was abandoned"
+  if [[ -e "$t4_run_dir/thread-id" ]]; then
+    fail "the fallback run records no thread id either"
+  else
+    pass "the fallback run records no thread id either"
+  fi
+}
+
+# A dropped value would otherwise make the next flag the value: `--base --commit` reviewed a branch
+# named `--commit`.
+case_flag_value_that_is_a_flag() {
+  local status
+  t4_write_prompt "$case_dir/prompt"
+
+  bash "$WRAPPER" run --model --effort high <"$case_dir/prompt" >/dev/null 2>"$case_dir/err"
+  assert_eq 64 "$?" "--model followed by a flag exits 64"
+  assert_contains "$(cat "$case_dir/err")" "codex-subagent: --model needs a value" "reason on stderr"
+
+  bash "$WRAPPER" run --model m --effort --read-only <"$case_dir/prompt" >/dev/null 2>&1
+  assert_eq 64 "$?" "--effort followed by a flag exits 64"
+
+  bash "$WRAPPER" run --model m --effort high --resume --read-only <"$case_dir/prompt" >/dev/null 2>&1
+  assert_eq 64 "$?" "--resume followed by a flag exits 64"
+
+  bash "$WRAPPER" review --model m --effort high --base --commit <"$case_dir/prompt" >/dev/null 2>&1
+  assert_eq 64 "$?" "--base followed by a flag exits 64"
+
+  bash "$WRAPPER" review --model m --effort high --commit --base <"$case_dir/prompt" >/dev/null 2>&1
+  assert_eq 64 "$?" "--commit followed by a flag exits 64"
+
+  status=$(cat "$FAKE_CODEX_RECORD_DIR/count" 2>/dev/null) || status=0
+  assert_eq 0 "$status" "none of them reach codex"
+}
+
+# Choosing a model is a CLAUDE.md edit, never a plugin release, so no file the plugin ships may
+# name one.
+case_plugin_names_no_model() {
+  local hits
+  hits=$(grep -rn -- 'gpt-' "$REPO_ROOT/plugins" 2>/dev/null)
+  assert_eq "" "$hits" "no file under plugins/ names a model"
+}
+
 # --- run the cases ---
 
 # ticket 01
@@ -823,6 +906,12 @@ run_case case_resume_sandbox_workspace_write
 run_case case_resume_fallback_workspace_write
 run_case case_resume_fallback_read_only
 run_case case_resume_failure_after_thread_start
+
+# fix pass
+run_case case_strict_config_on_resume_only
+run_case case_thread_id_needs_thread_started
+run_case case_flag_value_that_is_a_flag
+run_case case_plugin_names_no_model
 
 printf 'PASS: %s FAIL: %s\n' "$pass_count" "$fail_count"
 ((fail_count == 0)) || exit 1

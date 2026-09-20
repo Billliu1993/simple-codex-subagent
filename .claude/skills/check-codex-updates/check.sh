@@ -69,8 +69,21 @@ if ((refresh)); then
   target="$snapshot_root/codex-$installed_version"
   existed=0
   [[ -d $target ]] && existed=1
-  capture_help "$target" || die "could not capture help output from codex"
-  printf '%s\n' "$installed_version" >"$target/VERSION" || die "could not write $target/VERSION"
+
+  # Capture all four files into the work dir first and move them in only once every one of them
+  # succeeded: a capture that dies on the third command must not leave the committed snapshots
+  # half-overwritten, with one of them holding an error message.
+  staged="$work_dir/refresh"
+  capture_help "$staged" || die "could not capture help output from codex"
+  printf '%s\n' "$installed_version" >"$staged/VERSION" || die "could not write a VERSION file"
+
+  mkdir -p "$target" || die "could not create $target"
+  for entry in "${HELP_COMMANDS[@]}" "VERSION:VERSION"; do
+    base=${entry##*:}
+    [[ $base == VERSION ]] || base="$base.txt"
+    mv -f "$staged/$base" "$target/$base" || die "could not write $target/$base"
+  done
+
   if ((existed)); then
     printf 'Refreshed snapshots in %s (codex-cli %s).\n' "${target#"$repo_root"/}" "$installed_version"
   else

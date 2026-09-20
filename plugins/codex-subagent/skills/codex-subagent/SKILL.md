@@ -6,7 +6,9 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh *)
 ---
 
 Codex is the subagent; you plan and verify. Every run goes through the bundled wrapper, invoked as
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh"`. Never call `codex` yourself.
+`bash ${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh`, written exactly that way: the pre-approval
+matches that literal prefix, so quoting the path turns every dispatch into a permission prompt.
+Never call `codex` yourself.
 
 ## When to delegate
 
@@ -42,15 +44,16 @@ Every prompt carries these rules, in the constraints section:
 ## Run
 
 ```
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh" run --model <m> --effort <e> [--read-only]
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh run --model <m> --effort <e> [--read-only]
 ```
 
 Send the prompt on stdin, as a heredoc. Dispatch with the Bash tool's `run_in_background: true`, so
 you and the user keep working while Codex runs.
 
-The wrapper's first line of stdout is the run directory. That path is the run id, and the progress
-log is `<run dir>/progress.log`. Tell the user both as soon as the run is dispatched, so they can
-watch it themselves.
+The wrapper's first line of stdout is the run directory. That path is the run id, and the run's
+progress log lives in it as two files: `events.jsonl`, the event stream that moves while Codex
+works, and `progress.log`, which holds CLI-level errors and is empty on a healthy run. Tell the
+user the run directory as soon as the run is dispatched, so they can watch it themselves.
 
 ## Status check
 
@@ -80,9 +83,6 @@ for f in "$d/events.jsonl" "$d/progress.log"; do
 done
 ```
 
-`events.jsonl` is the file that moves while Codex works; `progress.log` carries CLI-level errors
-only and is empty on a healthy run.
-
 The check reads and prints, and that is all it does: it kills nothing and holds no threshold. How
 long a quiet run may stay quiet, and what to do when it does, is a decision for this repo's
 CLAUDE.md and the user.
@@ -90,7 +90,7 @@ CLAUDE.md and the user.
 ## Resume
 
 ```
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh" run --model <m> --effort <e> [--read-only] --resume <thread-id>
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh run --model <m> --effort <e> [--read-only] --resume <thread-id>
 ```
 
 Resume when the task is a follow-up on a run from this conversation and you have its thread id from
@@ -111,7 +111,7 @@ comes from a run that started without it — a delta-only prompt may well have b
 ## Review
 
 ```
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh" review --model <m> --effort <e> [--uncommitted | --base <branch> | --commit <sha>]
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh review --model <m> --effort <e> [--uncommitted | --base <branch> | --commit <sha>]
 ```
 
 Scope the diff with one of `--uncommitted`, `--base <branch>`, or `--commit <sha>`. Given no scope
@@ -148,3 +148,7 @@ stops. A failed run produced no result, so there is nothing to summarise as prog
 After an implementation run, check Codex's claims before the user hears them: read `git diff` and
 `git status`, confirm the change matches what the final message describes, and re-run the
 verification Codex reports as passing. Tell the user what you confirmed and what you could not.
+
+Only the wrapper is pre-approved, by design: reading a run's files, the status check, `git diff`,
+`git status` and the verification commands all go through the normal permission flow, so the user
+sees what you run on their tree.

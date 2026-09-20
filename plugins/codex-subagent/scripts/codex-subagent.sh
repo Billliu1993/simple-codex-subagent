@@ -26,6 +26,13 @@ die() { # die <exit-code> <reason>
   exit "$1"
 }
 
+# A flag's value, checked before it is taken. A value starting with `--` is the next flag: the
+# caller dropped the value, and swallowing the flag as one would run something they never asked for.
+require_value() { # require_value <flag> <remaining-arg-count> <value>
+  (($2 >= 2)) || die 64 "$1 needs a value"
+  [[ $3 != --* ]] || die 64 "$1 needs a value, but '$3' is a flag"
+}
+
 subcommand=""
 model=""
 effort=""
@@ -48,12 +55,12 @@ parse_args() {
   while (($# > 0)); do
     case "$1" in
       --model)
-        (($# >= 2)) || die 64 "--model needs a value"
+        require_value --model "$#" "${2:-}"
         model=$2
         shift 2
         ;;
       --effort)
-        (($# >= 2)) || die 64 "--effort needs a value"
+        require_value --effort "$#" "${2:-}"
         effort=$2
         shift 2
         ;;
@@ -64,7 +71,7 @@ parse_args() {
         ;;
       --resume)
         [[ $subcommand == run ]] || die 64 "--resume belongs to 'run'"
-        (($# >= 2)) || die 64 "--resume needs a thread id"
+        require_value --resume "$#" "${2:-}"
         resume_id=$2
         shift 2
         ;;
@@ -77,7 +84,7 @@ parse_args() {
       --base)
         [[ $subcommand == review ]] || die 64 "--base belongs to 'review'"
         [[ -z $review_scope ]] || die 64 "review takes one scope; already given $review_scope"
-        (($# >= 2)) || die 64 "--base needs a branch"
+        require_value --base "$#" "${2:-}"
         review_scope="--base"
         review_scope_value=$2
         shift 2
@@ -85,7 +92,7 @@ parse_args() {
       --commit)
         [[ $subcommand == review ]] || die 64 "--commit belongs to 'review'"
         [[ -z $review_scope ]] || die 64 "review takes one scope; already given $review_scope"
-        (($# >= 2)) || die 64 "--commit needs a sha"
+        require_value --commit "$#" "${2:-}"
         review_scope="--commit"
         review_scope_value=$2
         shift 2
@@ -110,8 +117,11 @@ check_preconditions() {
 make_run_dir() {
   local tmp_root="${TMPDIR:-/tmp}"
   tmp_root=${tmp_root%/}
-  run_dir="$tmp_root/codex-subagent/$(date +%Y%m%d-%H%M%S)-$$"
-  mkdir -p "$run_dir"
+  mkdir -p "$tmp_root/codex-subagent"
+  # mktemp, not a bare mkdir: the run directory holds the prompt and the result, so it must be
+  # this run's alone -- 0700, and never a directory someone else pre-created -- and must not
+  # collide with a second run that starts in the same second under a recycled pid.
+  run_dir=$(mktemp -d "$tmp_root/codex-subagent/$(date +%Y%m%d-%H%M%S)-$$-XXXXXX")
   printf '%s\n' "$run_dir"
 }
 
@@ -132,18 +142,21 @@ write_argv() { # write_argv <arg>...
   done
 }
 
-# Codex's first JSONL event carries the thread id. Parsed tolerantly, so no jq is needed.
-# Returns non-zero when no thread ever started, which is what a resume fallback keys on.
+# Codex's first JSONL event is the thread start and carries the thread id. Parsed tolerantly, so
+# no jq is needed, but the line has to be a `thread.started` event: an error that merely mentions a
+# thread id is not a thread that started, and the resume fallback keys on that difference. Only the
+# head of the stream is scanned, so the poll loop never re-reads a growing file.
 capture_thread_id() {
   local line id
-  line=$(grep -m1 'thread_id' "$run_dir/events.jsonl" 2>/dev/null) || return 1
+  line=$(head -n 50 "$run_dir/events.jsonl" 2>/dev/null |
+    grep -m1 '"type"[[:space:]]*:[[:space:]]*"thread\.started"') || return 1
   id=$(printf '%s\n' "$line" |
     sed -n 's/.*"thread_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
   [[ -n $id ]] || return 1
   printf '%s\n' "$id" >"$run_dir/thread-id"
 }
 
-record_result() { # record_result <exit-code>
+record_exit_code() { # record_exit_code <exit-code>
   printf '%s\n' "$1" >"$run_dir/exit-code"
 }
 
@@ -164,7 +177,7 @@ invoke_codex() { # invoke_codex codex <arg>...
   done
   wait "$codex_pid" || status=$?
   capture_thread_id || true
-  record_result "$status"
+  record_exit_code "$status"
   return "$status"
 }
 
@@ -188,6 +201,10 @@ run_fresh() {
 # sandbox travels as a config override (never inherited from the thread or the user's config) and
 # the working directory is set by cd'ing to the git toplevel first.
 #
+# `--strict-config` is what makes that override load-bearing: without it Codex ignores a key it does
+# not know, so the day `sandbox_mode` is renamed a read-only follow-up would silently inherit the
+# thread's workspace-write sandbox. With it, the resume fails instead.
+#
 # A resume that dies before Codex ever started the thread means the thread is stale, missing, or
 # unusable: the task is still worth doing, so the same prompt starts a fresh run, and the failed
 # attempt is kept beside it under `resume-*` names. A resume that dies after the thread started
@@ -198,6 +215,7 @@ run_resume() {
 
   local status=0
   invoke_codex codex exec resume "$resume_id" \
+    --strict-config \
     -m "$model" \
     -c "model_reasoning_effort=\"$effort\"" \
     -c "sandbox_mode=\"$sandbox\"" \
@@ -239,32 +257,31 @@ review_default_branch() {
   fi
 }
 
-# The scope this review diffs: the flag the caller gave, else what the tree suggests.
-review_scope_args() {
+# The scope this review diffs: the flag the caller gave, else what the tree suggests. Fills the
+# caller's `scope` array, so a branch name with a space stays one argument.
+set_review_scope() {
   if [[ -n $review_scope_value ]]; then
-    printf '%s\n%s\n' "$review_scope" "$review_scope_value"
+    scope=("$review_scope" "$review_scope_value")
   elif [[ -n $review_scope ]]; then
-    printf '%s\n' "$review_scope"
+    scope=("$review_scope")
   elif [[ -n $(git status --porcelain) ]]; then
-    printf -- '--uncommitted\n'
+    scope=(--uncommitted)
   else
-    printf -- '--base\n%s\n' "$(review_default_branch)"
+    scope=(--base "$(review_default_branch)")
   fi
 }
 
 # `codex exec review` takes no --sandbox and no -C: it edits nothing, so there is no sandbox to
 # choose, and the repository is whichever one the process sits in. Hence the cd, and hence no
-# network or web-search override here either.
+# network override. Web search is live here as on every other run, so a review can check what the
+# current documentation says rather than what it remembers.
 run_review() {
   read_prompt_to_file
   cd "$git_toplevel"
 
   local -a scope=()
-  local line
-  while IFS= read -r line; do
-    scope+=("$line")
-  done < <(review_scope_args)
-  printf '%s\n' "${scope[*]}" >"$run_dir/review-scope"
+  set_review_scope
+  printf '%s\n' "${scope[@]}" >"$run_dir/review-scope"
 
   # An empty focus with `-` would leave codex waiting on an empty prompt, so pass no prompt at all.
   local -a focus_arg=()
@@ -278,6 +295,7 @@ run_review() {
   invoke_codex codex exec review "${scope[@]}" \
     -m "$model" \
     -c "model_reasoning_effort=\"$effort\"" \
+    -c 'web_search="live"' \
     --json \
     -o "$run_dir/final-message.md" \
     ${focus_arg[@]+"${focus_arg[@]}"} || status=$?

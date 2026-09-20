@@ -7,6 +7,8 @@
 #   FAKE_CODEX_EXIT             exit code for a fresh exec/review invocation (default 0)
 #   FAKE_CODEX_RESUME_EXIT      exit code for a resume invocation (default $FAKE_CODEX_EXIT)
 #   FAKE_CODEX_RESUME_EMIT_THREAD  0 to emit no thread.started on a resume (default 1)
+#   FAKE_CODEX_FAKE_THREAD_EVENT   1 to emit an event carrying a thread_id whose type is not
+#                                  thread.started, in place of the thread.started event (default 0)
 #   FAKE_CODEX_THREAD_ID        the thread id in the thread.started event
 #   FAKE_CODEX_FINAL_MESSAGE    written to the -o / --output-last-message file
 #   FAKE_CODEX_SLEEP            seconds to sleep, one progress line to stderr per second
@@ -65,8 +67,13 @@ fi
 printf 'fake-codex: invocation %s starting\n' "$n" >&2
 
 if ((has_json)) && ((emit_thread)); then
-  printf '{"type":"thread.started","thread_id":"%s"}\n' \
-    "${FAKE_CODEX_THREAD_ID:-11111111-2222-3333-4444-555555555555}"
+  if [[ ${FAKE_CODEX_FAKE_THREAD_EVENT:-0} == 1 ]]; then
+    printf '{"type":"error","message":"no thread_id in this one","thread_id":"%s"}\n' \
+      "${FAKE_CODEX_THREAD_ID:-11111111-2222-3333-4444-555555555555}"
+  else
+    printf '{"type":"thread.started","thread_id":"%s"}\n' \
+      "${FAKE_CODEX_THREAD_ID:-11111111-2222-3333-4444-555555555555}"
+  fi
 fi
 
 sleep_secs=${FAKE_CODEX_SLEEP:-0}
