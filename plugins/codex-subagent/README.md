@@ -141,12 +141,17 @@ It prints, in order: whether the pid is alive, or has exited and with which exit
 seconds since the newer of `events.jsonl` and `progress.log` last changed; the thread id; a
 review's scope and how it was delivered; one line quoting the reason a resume was abandoned; then
 the last five lines of each of those two files that has any. Every line but the first two comes
-from a file the run only sometimes has, and appears only when that file is there.
+from a file the run only sometimes has, and appears only when that file is there. A finished run
+reports the exit code it recorded even when its pid has since been reused by another process, since
+`exit-code` is read before the pid is probed; until a log file exists there is no silence to
+measure, and the seconds line says so instead of giving a number.
 
-The subcommand reads and prints, and that is all it does: it kills nothing, holds no threshold, and
-starts no run, so it takes neither `--model` nor `--effort` and needs no prompt on stdin. It exits 0
-whenever it could read the run directory. Being the wrapper, it falls inside the skill's
-pre-approval, so a status check costs no permission prompt.
+The check refuses a path that is not a run directory — one it cannot read, one holding no `pid`
+file, or one whose `pid` file holds no pid — with exit 64 and a line on stderr, because that is a
+wrong path rather than a run with nothing to report. Otherwise it reads and prints, and that is all
+it does: it kills nothing, holds no threshold, and starts no run, so it takes neither `--model` nor
+`--effort` and needs no prompt on stdin, and it exits 0. Being the wrapper, it falls inside the
+skill's pre-approval, so a status check costs no permission prompt.
 
 ## Resume
 
@@ -209,7 +214,7 @@ own, and it prints one line to stderr with each:
 
 | Code | Reason |
 | --- | --- |
-| 64 | Unknown subcommand, unknown flag, a flag given where its value belongs, conflicting review scope flags, or a `status` whose run directory argument is missing, unreadable, or a flag |
+| 64 | Unknown subcommand, unknown flag, a flag given where its value belongs, conflicting review scope flags, or a `status` whose argument is missing, is a flag, is one of several, or is not a readable run directory |
 | 65 | Missing `--model` |
 | 66 | Missing `--effort` |
 | 67 | stdin is a terminal — the prompt must be piped |

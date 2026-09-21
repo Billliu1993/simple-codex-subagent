@@ -434,7 +434,7 @@ case_status_review_scope() {
   t3_check "$t5_run_dir"
   assert_eq 0 "$t3_code" "status on a review exits 0"
   assert_contains "$t3_out" "review scope: --uncommitted" "status prints the review scope"
-  assert_contains "$t3_out" "review scope: delivered-as: instructions" \
+  assert_contains "$t3_out" "review scope delivered as: instructions" \
     "status prints how the scope was delivered"
 }
 
@@ -477,6 +477,60 @@ case_status_missing_argument() {
   assert_eq 64 "$t3_code" "status with no run directory exits 64"
   assert_eq "" "$t3_out" "status with no run directory prints no report"
   assert_contains "$t3_err" "codex-subagent:" "status with no run directory says so on stderr"
+}
+
+# A run directory this wrapper wrote holds a `pid` file. A readable directory without one is some
+# other directory, so the path is wrong: an error, not a report with nothing in it.
+case_status_plain_directory() {
+  mkdir -p "$case_dir/not-a-run"
+  t3_check "$case_dir/not-a-run"
+  assert_eq 64 "$t3_code" "status on a directory with no pid file exits 64"
+  assert_eq "" "$t3_out" "status on a directory with no pid file prints no report"
+  assert_contains "$t3_err" "codex-subagent:" "status on a plain directory says so on stderr"
+}
+
+# A finished run's state comes from `exit-code`, not from the pid: the fixture's pid is this test
+# shell, alive and unrelated, which is exactly what a recycled pid looks like from here.
+case_status_exit_code_beats_a_live_pid() {
+  mkdir -p "$case_dir/finished"
+  printf '%s\n' "$$" >"$case_dir/finished/pid"
+  printf '3\n' >"$case_dir/finished/exit-code"
+
+  t3_check "$case_dir/finished"
+  assert_eq 0 "$t3_code" "status on a finished fixture exits 0"
+  assert_contains "$t3_out" "pid $$: exited, exit code 3" \
+    "a recorded exit code is reported even though the pid is alive"
+  assert_not_contains "$t3_out" "alive" "the live pid is not reported as this run still going"
+}
+
+# A pid file that holds no pid means the wrapper did not write this directory. `-1` is the one
+# worth a case of its own: `kill -0 -1` signals every process the user owns, so it never gets there.
+case_status_rejects_a_garbage_pid() {
+  mkdir -p "$case_dir/garbage-pid" "$case_dir/negative-pid"
+  printf 'not-a-pid\n' >"$case_dir/garbage-pid/pid"
+  printf -- '-1\n' >"$case_dir/negative-pid/pid"
+
+  t3_check "$case_dir/garbage-pid"
+  assert_eq 64 "$t3_code" "status on a non-numeric pid file exits 64"
+  assert_eq "" "$t3_out" "status on a non-numeric pid file prints no report"
+  assert_contains "$t3_err" "codex-subagent:" "status on a non-numeric pid says so on stderr"
+
+  t3_check "$case_dir/negative-pid"
+  assert_eq 64 "$t3_code" "status on a negative pid exits 64"
+  assert_eq "" "$t3_out" "status on a negative pid prints no report"
+}
+
+# Before the first event lands there is no log to age, so the seconds line says so rather than
+# subtracting the 0 sentinel and reporting the age of the epoch.
+case_status_before_the_log_moves() {
+  mkdir -p "$case_dir/no-logs"
+  printf '%s\n' "$$" >"$case_dir/no-logs/pid"
+
+  t3_check "$case_dir/no-logs"
+  assert_eq 0 "$t3_code" "status with no log files exits 0"
+  assert_contains "$t3_out" "pid $$: alive" "status with no log files reads the pid"
+  assert_eq "no progress log yet" "$(t3_seconds_since "$t3_out")" \
+    "status with no log files says there is no progress log yet"
 }
 
 
@@ -1168,6 +1222,11 @@ run_case case_review_focus_default_scope_dirty
 run_case case_review_focus_default_scope_clean
 run_case case_review_empty_focus_keeps_the_flag
 run_case case_review_scope_records_delivery
+
+run_case case_status_plain_directory
+run_case case_status_exit_code_beats_a_live_pid
+run_case case_status_rejects_a_garbage_pid
+run_case case_status_before_the_log_moves
 
 printf 'PASS: %s FAIL: %s\n' "$pass_count" "$fail_count"
 ((fail_count == 0)) || exit 1

@@ -13,10 +13,10 @@
 #
 # The prompt (run) or focus (review) arrives on stdin. The first line of stdout is the run
 # directory. `status` starts nothing: it reads one run directory and prints what it found, and
-# exits 0 whenever it could read it. The exit status is Codex's own, except for the wrapper's own
+# exits 0 whenever it read one. The exit status is Codex's own, except for the wrapper's own
 # failures:
 #   64 unknown subcommand, unknown flag, conflicting review scope, or a status argument that is
-#      missing, a flag, or not a readable directory
+#      missing, a flag, one of several, or a path that is not a readable run directory
 #   65 missing --model
 #   66 missing --effort
 #   67 stdin is a terminal
@@ -374,6 +374,13 @@ run_review() {
   return "$status"
 }
 
+# One of the facts a run only sometimes has: printed as `<label>: <contents>` when the file is
+# there with something in it, and passed over when it is not.
+print_if_present() { # print_if_present <label> <file>
+  [[ -s $2 ]] || return 0
+  printf '%s: %s\n' "$1" "$(cat "$2")"
+}
+
 # The newest mtime among the files given, as a Unix timestamp, or 0 when none of them can be read.
 status_newest_mtime() { # status_newest_mtime <file>...
   local newest=0 f m
@@ -391,37 +398,55 @@ status_newest_mtime() { # status_newest_mtime <file>...
 # scope, an abandoned resume -- each only when the run directory holds the file that carries it,
 # then the tail of each progress log file that has anything in it.
 #
+# A run directory always holds a `pid` file, written before anything else a run records, and that
+# file always holds a pid. A directory missing either is not one this wrapper wrote, so the path is
+# wrong and saying so beats reporting on a directory nobody asked about.
+#
+# The pid's state comes from `exit-code` first and from the process only when there is no such file.
+# A recorded exit code means the run is over, and a pid the OS has since handed to something else
+# would otherwise be read as this run, still alive.
+#
 # It reads and prints and does nothing else: it kills nothing, holds no threshold, and never
 # decides that a quiet run is a stuck one. That judgement belongs to the repo's CLAUDE.md and the
 # user, so the seconds are reported and left alone.
 print_status() { # print_status <run dir>
-  local d=$1 pid exit_code newest line f
+  local d=$1 pid exit_code newest line value f
   [[ -d $d && -r $d && -x $d ]] || die 64 "cannot read run directory '$d'"
+  [[ -f $d/pid && -r $d/pid ]] || die 64 "'$d' is not a run directory: no pid file"
 
   pid=$(cat "$d/pid" 2>/dev/null) || pid=""
-  if [[ -z $pid ]]; then
-    printf 'pid not recorded\n'
+  # Checked before `kill -0` ever sees it: `kill -0 -1` signals every process the user owns.
+  [[ $pid =~ ^[0-9]+$ ]] || die 64 "'$d' is not a run directory: pid file holds '$pid'"
+
+  if [[ -f $d/exit-code ]]; then
+    exit_code=$(cat "$d/exit-code" 2>/dev/null) || exit_code=""
+    printf 'pid %s: exited, exit code %s\n' "$pid" "${exit_code:-not recorded}"
   elif kill -0 "$pid" 2>/dev/null; then
     printf 'pid %s: alive\n' "$pid"
   else
-    exit_code=$(cat "$d/exit-code" 2>/dev/null) || exit_code=""
-    printf 'pid %s: exited, exit code %s\n' "$pid" "${exit_code:-not recorded}"
+    printf 'pid %s: exited, exit code not recorded\n' "$pid"
   fi
 
   newest=$(status_newest_mtime "$d/events.jsonl" "$d/progress.log")
-  printf 'seconds since the log last moved: %s\n' "$(($(date +%s) - newest))"
-
-  if [[ -s $d/thread-id ]]; then
-    printf 'thread id: %s\n' "$(cat "$d/thread-id")"
+  if ((newest > 0)); then
+    printf 'seconds since the log last moved: %s\n' "$(($(date +%s) - newest))"
+  else
+    # No log file to age yet, so there is no silence to measure: the 0 sentinel is not a timestamp.
+    printf 'seconds since the log last moved: no progress log yet\n'
   fi
+
+  print_if_present 'thread id' "$d/thread-id"
   if [[ -s $d/review-scope ]]; then
     while IFS= read -r line; do
-      printf 'review scope: %s\n' "$line"
+      if [[ $line == delivered-as:* ]]; then
+        value=${line#delivered-as:}
+        printf 'review scope delivered as:%s\n' "$value"
+      else
+        printf 'review scope: %s\n' "$line"
+      fi
     done <"$d/review-scope"
   fi
-  if [[ -s $d/resume-fallback ]]; then
-    printf 'resume fell back to a fresh run: %s\n' "$(cat "$d/resume-fallback")"
-  fi
+  print_if_present 'resume fell back to a fresh run' "$d/resume-fallback"
 
   for f in "$d/events.jsonl" "$d/progress.log"; do
     if [[ -s $f ]]; then
