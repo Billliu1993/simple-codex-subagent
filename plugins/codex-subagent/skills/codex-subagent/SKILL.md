@@ -57,31 +57,14 @@ user the run directory as soon as the run is dispatched, so they can watch it th
 
 ## Status check
 
-One command, the run directory its only input. Run it when the user asks how a run is doing, and
-before you settle in to wait on a result.
-
-```bash
-d=<run dir>
-pid=$(cat "$d/pid")
-if kill -0 "$pid" 2>/dev/null; then
-  echo "pid $pid: alive"
-else
-  echo "pid $pid: exited, exit code $(cat "$d/exit-code" 2>/dev/null || echo 'not recorded')"
-fi
-newest=0
-for f in "$d/events.jsonl" "$d/progress.log"; do
-  # GNU stat first: BSD stat rejects -c, and BSD's -f prints a mount point under GNU.
-  m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null) || m=0
-  [ "$m" -gt "$newest" ] && newest=$m
-done
-echo "seconds since the log last moved: $(( $(date +%s) - newest ))"
-for f in "$d/events.jsonl" "$d/progress.log"; do
-  if [ -s "$f" ]; then
-    echo "--- tail $f"
-    tail -n 5 "$f"
-  fi
-done
 ```
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh status <run dir>
+```
+
+Run it when the user asks how a run is doing, and before you settle in to wait on a result. It
+reports the pid alive or exited with its exit code, seconds since the progress log last moved, the
+thread id, a review's scope, an abandoned resume, and the tail of each log file, so one check
+answers the question on its own.
 
 The check reads and prints, and that is all it does: it kills nothing and holds no threshold. How
 long a quiet run may stay quiet, and what to do when it does, is a decision for this repo's
@@ -159,6 +142,6 @@ After an implementation run, check Codex's claims before the user hears them: re
 `git status`, confirm the change matches what the final message describes, and re-run the
 verification Codex reports as passing. Tell the user what you confirmed and what you could not.
 
-Only the wrapper is pre-approved, by design: reading a run's files, the status check, `git diff`,
-`git status` and the verification commands all go through the normal permission flow, so the user
-sees what you run on their tree.
+Only the wrapper is pre-approved, by design, and the status check is the wrapper. Reading a run's
+files, `git diff`, `git status` and the verification commands all go through the normal permission
+flow, so the user sees what you run on their tree.

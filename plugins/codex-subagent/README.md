@@ -99,9 +99,22 @@ private to the run, and holds:
 
 ## Status check
 
-One command over a run directory: whether the pid is alive, how long since the log last moved, and
-its last lines. It reads and prints, and that is all — see the **Status check** section of
-[`skills/codex-subagent/SKILL.md`](skills/codex-subagent/SKILL.md) for the snippet Claude runs.
+A third subcommand reads one run directory and says how the run is doing:
+
+```
+codex-subagent.sh status <run dir>
+```
+
+It prints, in order: whether the pid is alive, or has exited and with which exit code; how many
+seconds since the newer of `events.jsonl` and `progress.log` last changed; the thread id; a
+review's scope and how it was delivered; one line quoting the reason a resume was abandoned; then
+the last five lines of each of those two files that has any. Every line but the first two comes
+from a file the run only sometimes has, and appears only when that file is there.
+
+The subcommand reads and prints, and that is all it does: it kills nothing, holds no threshold, and
+starts no run, so it takes neither `--model` nor `--effort` and needs no prompt on stdin. It exits 0
+whenever it could read the run directory. Being the wrapper, it falls inside the skill's
+pre-approval, so a status check costs no permission prompt.
 
 ## Resume
 
@@ -163,7 +176,7 @@ own, and it prints one line to stderr with each:
 
 | Code | Reason |
 | --- | --- |
-| 64 | Unknown subcommand, unknown flag, a flag given where its value belongs, or conflicting review scope flags |
+| 64 | Unknown subcommand, unknown flag, a flag given where its value belongs, conflicting review scope flags, or a `status` whose run directory argument is missing, unreadable, or a flag |
 | 65 | Missing `--model` |
 | 66 | Missing `--effort` |
 | 67 | stdin is a terminal — the prompt must be piped |
