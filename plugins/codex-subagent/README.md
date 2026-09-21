@@ -16,7 +16,7 @@ No MCP server, no app-server protocol, no daemon, no background broker, no hooks
 
 ## Install
 
-Install once at user scope; each repo's `CLAUDE.md` then decides when work goes to Codex, and `/codex-subagent:setup` writes that part for you, once per repo.
+Install once at user scope; each repo's `CLAUDE.md` then decides when work goes to Codex, and `/codex-subagent:setup-codex-delegation` writes that part for you, once per repo.
 
 ```
 /plugin marketplace add Billliu1993/simple-codex-subagent
@@ -28,12 +28,12 @@ Update with `/plugin update`. The version in the plugin manifest is bumped on ev
 ## Invoke
 
 ```
-/codex-subagent:setup
+/codex-subagent:setup-codex-delegation
 /codex-subagent --model <m> --effort <e> [--read-only] [--resume <thread-id>] <task>
 /codex-subagent review --model <m> --effort <e> [--uncommitted | --base <branch> | --commit <sha>] [focus]
 ```
 
-`/codex-subagent:setup` is the once-per-repo one, and it runs only when you ask for it by name. The other two are the delegation itself.
+`/codex-subagent:setup-codex-delegation` is the once-per-repo one, and it runs only when you ask for it by name. The other two are the delegation itself.
 
 `--model` and `--effort` are required on both delegation forms; a call missing either one fails rather than falling back to a Codex default. Effort values pass straight through to Codex, so the wrapper never goes stale on that list. `--read-only` picks the read-only sandbox; without it the run gets `workspace-write`, which can edit the repository and reach the network but nothing outside the repository.
 
@@ -41,7 +41,7 @@ Nothing the plugin runs names a model: no wrapper default, no skill default. Whi
 
 ## The repo's Codex delegation section
 
-Run `/codex-subagent:setup` once in a repo. It interviews you and writes a `## Codex delegation` section into that repo's `CLAUDE.md` — or `AGENTS.md`, or whichever of the two you ask it to create when the repo has neither — and writes nothing anywhere else. The questions come one at a time, each led by a recommendation you can accept in a word: the model for each kind of work, the effort for each kind of work, whether Claude delegates straight away or proposes and waits for your go-ahead when you did not ask for Codex, how long a run may go quiet before Claude tells you, what Codex cannot run in this environment, and how many runs may go at once. You see the whole section, and can edit it and add rows, before any of it is written.
+Run `/codex-subagent:setup-codex-delegation` once in a repo. It interviews you and writes a `## Codex delegation` section into that repo's `CLAUDE.md` — or `AGENTS.md`, or whichever of the two you ask it to create when the repo has neither — and writes nothing anywhere else. The questions come one at a time, each led by a recommendation you can accept in a word: the model for each kind of work, the effort for each kind of work, whether Claude delegates straight away or proposes and waits for your go-ahead when you did not ask for Codex, how long a run may go quiet before Claude tells you, what Codex cannot run in this environment, and how many runs may go at once. You see the whole section, and can edit it and add rows, before any of it is written.
 
 Accepting every recommendation in a repo with no instructions file writes this:
 
@@ -143,8 +143,8 @@ The wrapper exits with Codex's own status, so Claude's success and failure judge
 
 - [ ] Install from the marketplace succeeds.
 - [ ] The short form `/codex-subagent` resolves.
-- [ ] `/codex-subagent:setup` in a repo with no `CLAUDE.md` and no `AGENTS.md` asks which to create, and writes the section into that one file and nothing else.
-- [ ] `/codex-subagent:setup` re-run on a repo whose section carries hand edits — a reworded row, an added row, a paragraph of its own guidance, an edited threshold — changes only the lines it owns and leaves every hand edit where it was.
+- [ ] `/codex-subagent:setup-codex-delegation` in a repo with no `CLAUDE.md` and no `AGENTS.md` asks which to create, and writes the section into that one file and nothing else.
+- [ ] `/codex-subagent:setup-codex-delegation` re-run on a repo whose section carries hand edits — a reworded row, an added row, a paragraph of its own guidance, an edited threshold — changes only the lines it owns and leaves every hand edit where it was.
 - [ ] One delegation driven by a row of a generated section returns a final message.
 - [ ] A `--read-only` run changes nothing (`git status --porcelain` stays empty).
 - [ ] A workspace-write run makes a small edit and runs a test.

@@ -2,7 +2,7 @@
 
 A Claude Code plugin that hands one scoped task to the locally installed OpenAI Codex CLI and reads back its final message: two skills, one shell wrapper, `codex exec` only, always sandboxed.
 
-Read [`plugins/codex-subagent/README.md`](plugins/codex-subagent/README.md) for what it does, the invocation forms, and the `## Codex delegation` section that `/codex-subagent:setup` writes into a repo's `CLAUDE.md`.
+Read [`plugins/codex-subagent/README.md`](plugins/codex-subagent/README.md) for what it does, the invocation forms, and the `## Codex delegation` section that `/codex-subagent:setup-codex-delegation` writes into a repo's `CLAUDE.md`.
 
 Install once at user scope:
 

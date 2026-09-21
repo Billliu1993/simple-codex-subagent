@@ -108,7 +108,7 @@ Draw the boundary from ADR-0002: the delegating skill carries the mechanics of a
 
 ### Setup skill
 
-- A second skill in the plugin, invoked as `/codex-subagent:setup`, with model invocation disabled so it runs only when the user asks.
+- A second skill in the plugin, invoked as `/codex-subagent:setup-codex-delegation`, with model invocation disabled so it runs only when the user asks. Named `setup-codex-delegation` rather than `setup` (amended 2026-09-20 during implementation): the short form `/setup` would collide with any other plugin that ships a `setup` skill, and the longer name follows the repo's `setup-*` convention and names the section it writes.
 - Preflight: `codex` on PATH and `codex --version` reported; sign-in confirmed by whatever the CLI offers for it, with the login command named if it is not signed in. Preflight failure ends the skill before any interview.
 - Model discovery: fetch the OpenAI Codex models documentation, following its redirect, and collect the model identifiers and effort levels it lists. Read the default model from the user's Codex config and mark it. If the fetch fails, offer the config default and accept any typed name. No validation runs.
 - Interview, one section per answer, each led by the recommended answer: model per row with the config default as the recommendation; effort per row with high for implementation, medium for research, high for review and adversarial review; pause rule with straight delegation as the default; quiet-run threshold with three minutes as the default; what Codex cannot run here with nothing as the default; concurrency cap with two as the default.

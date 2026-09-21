@@ -1,5 +1,5 @@
 ---
-name: setup
+name: setup-codex-delegation
 description: "Interview this repo for its `## Codex delegation` section — routing table, pause rule, quiet-run threshold, concurrency cap — and write it into CLAUDE.md."
 disable-model-invocation: true
 ---

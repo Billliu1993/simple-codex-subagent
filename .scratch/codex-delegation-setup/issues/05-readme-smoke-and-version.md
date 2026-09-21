@@ -19,14 +19,14 @@
 - 2026-09-20: built on branch `feat/codex-delegation-setup`. `plugins/codex-subagent/README.md`: the
   "Suggested CLAUDE.md routing table" section — the paste-in template and the threshold paragraph
   after it — is replaced by "The repo's Codex delegation section", which says to run
-  `/codex-subagent:setup` once per repo, lists what the interview asks for in order, shows one
+  `/codex-subagent:setup-codex-delegation` once per repo, lists what the interview asks for in order, shows one
   example section copied verbatim from a real run today (the bare-repo case below, every
   recommendation accepted, so it names `gpt-5.6-sol`), states that the skill carries the mechanics
   and the section carries the behaviour — pause rule, stop after review, threshold, cap, what Codex
   cannot run — with a pointer to `docs/adr/0002-skill-carries-mechanics-repo-carries-behaviour.md`,
   and says the section is plain markdown to hand-edit and that a re-run rewrites only the lines the
   skill owns. Stale statements fixed: the intro now reads "two skills and one shell wrapper"; Install
-  names the setup skill; Invoke lists `/codex-subagent:setup` and notes it runs only when asked by
+  names the setup skill; Invoke lists `/codex-subagent:setup-codex-delegation` and notes it runs only when asked by
   name; the Review section's close is now "A review edits nothing: the run leaves the tree
   untouched", with the stop attributed to the repo's section rather than the skill. Grepped the file
   for "propose", "go-ahead", "stop" and "threshold": the remaining mentions are the interview
@@ -55,8 +55,8 @@
   | --- | --- | --- |
   | Install from the marketplace | pass, from the local path | `claude plugin marketplace add <repo>` then `claude plugin install codex-subagent@codex-subagent`, both exit 0, run with `CLAUDE_CONFIG_DIR` pointed at a scratch config so the user's global install (0.2.3, from GitHub) was not touched. `claude plugin details` there lists Skills (2): `codex-subagent`, `setup`. After the bump, `claude plugin marketplace update` + `claude plugin update` moved that install 0.2.3 → 0.3.0. `claude plugin validate` passes on both manifests (author/description warnings only) |
   | The short form `/codex-subagent` resolves | unchecked | needs a live Claude session on an installed 0.3.0; the session running this work has 0.2.3 from the GitHub marketplace |
-  | `/codex-subagent:setup` on a repo with no `CLAUDE.md` | pass, prose executed by hand | preflight printed `codex-cli 0.155.1` and `Logged in using ChatGPT`; `curl -sL https://developers.openai.com/codex/models` returned 200 (~648 KB) listing `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`; config default `gpt-5.6-sol` / `high`. Neither `CLAUDE.md` nor `AGENTS.md` existed, so the skill asks which to create and the run chose `CLAUDE.md`. Every recommendation accepted (config default for all four rows; high/medium/high/high; straight delegation; 3 minutes; nothing Codex cannot run; cap 2). `CLAUDE.md` was the only file written, one top-level `## Codex delegation` heading, no environment line. That file is the README's example, verbatim |
-  | `/codex-subagent:setup` re-run keeps hand edits | pass, prose executed by hand | same repo, section hand-edited first: `## Build` before and `## Release` after it, the review row's label reworded to "findings on a diff, severity first", an added "Changelog drafting" row, a hand-written `secrets/` paragraph, and the threshold edited to 90 seconds. Step 3 read the current values off the section (straight delegation, 90 seconds, cap 2, no environment line) and passed over the reworded and added rows; the interview changed one answer, the research row's model to `gpt-6-astra`. The diff is exactly that one row line, its Model and Invocation cells; every hand edit and both neighbouring sections survive, and `grep -c '^## Codex delegation'` is 1 |
+  | `/codex-subagent:setup-codex-delegation` on a repo with no `CLAUDE.md` | pass, prose executed by hand | preflight printed `codex-cli 0.155.1` and `Logged in using ChatGPT`; `curl -sL https://developers.openai.com/codex/models` returned 200 (~648 KB) listing `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`; config default `gpt-5.6-sol` / `high`. Neither `CLAUDE.md` nor `AGENTS.md` existed, so the skill asks which to create and the run chose `CLAUDE.md`. Every recommendation accepted (config default for all four rows; high/medium/high/high; straight delegation; 3 minutes; nothing Codex cannot run; cap 2). `CLAUDE.md` was the only file written, one top-level `## Codex delegation` heading, no environment line. That file is the README's example, verbatim |
+  | `/codex-subagent:setup-codex-delegation` re-run keeps hand edits | pass, prose executed by hand | same repo, section hand-edited first: `## Build` before and `## Release` after it, the review row's label reworded to "findings on a diff, severity first", an added "Changelog drafting" row, a hand-written `secrets/` paragraph, and the threshold edited to 90 seconds. Step 3 read the current values off the section (straight delegation, 90 seconds, cap 2, no environment line) and passed over the reworded and added rows; the interview changed one answer, the research row's model to `gpt-6-astra`. The diff is exactly that one row line, its Model and Invocation cells; every hand edit and both neighbouring sections survive, and `grep -c '^## Codex delegation'` is 1 |
   | One delegation driven by a row of the generated section | pass | the generated research row, `--model gpt-5.6-sol --effort medium --read-only`, exit 0, `20260920-215941-27891-H059Jw`, final message `print("hi")`, tree unchanged |
   | A `--read-only` run changes nothing | pass | `20260920-215621-23861-JEuDI0`, exit 0, `final-message.md` is `OK`, `git status --porcelain` unchanged |
   | A workspace-write run makes a small edit and runs a check | pass | `20260920-215632-24286-Y3ieRE`, exit 0, appended "second line" to `notes.txt` and reported the output of `cat notes.txt`; `git status` shows `M notes.txt` |
@@ -67,7 +67,7 @@
   | A bad model name surfaces as a failure with a log tail | pass | `--model gpt-9-nope`, `20260920-215900-27383-odn4DH`, exit 1, `exit-code` 1, `progress.log` empty as documented, `events.jsonl` tail carries the 400 "The 'gpt-9-nope' model is not supported…"; `status <run dir>` reports "exited, exit code 1" and prints that tail |
 
 - 2026-09-20: not verified. The two live-session items above — the short form resolving and
-  `/codex-subagent:setup` invoked as a slash command — cannot be observed until 0.3.0 is installed in
+  `/codex-subagent:setup-codex-delegation` invoked as a slash command — cannot be observed until 0.3.0 is installed in
   a session; the setup cases were executed as prose by hand instead, the way tickets 03 and 04 did.
   The GitHub marketplace form of the install is likewise unverified on this branch: it resolves the
   default branch, which is still 0.2.3 until this merges. Every criterion is ticked; the `Status:`
