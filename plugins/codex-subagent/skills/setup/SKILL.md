@@ -46,10 +46,47 @@ and accept any name the user types.
 Nothing is validated: no run is made to check a model name. A typo surfaces as a failed run, the
 way a bad model name always does.
 
-## 3. Interview
+## 3. The file, and the section already in it
+
+Pick the file before the interview, because a section already in it sets the recommendations:
+`CLAUDE.md` when it exists, else `AGENTS.md` when it exists, else ask which of the two to create.
+Never create one beside the other.
+
+Then look for the section:
+
+```
+grep -n '^## Codex delegation' <file>
+```
+
+The section runs from that top-level heading to the next top-level `## ` heading, or to the end of
+the file. No heading is a first run: the interview recommends the defaults in step 4, and step 6
+appends a new section. One heading is a re-run: the section's current values are the
+recommendations, and step 6 updates that section where it stands.
+
+Read each value off the section as it reads now, so a line the user reworded still yields it:
+
+| Answer | The line | The value in it |
+| --- | --- | --- |
+| Model and effort, per row | Each table row | The quoted name in that row's Model cell and in its Effort cell |
+| Pause rule | The delegating sentence under the heading | Straight delegation when it says to delegate by the table; the pause when it says to propose and wait for a go-ahead |
+| Threshold | The line about a run gone quiet | The duration in it |
+| Cap | The line about how many runs go at once | The number in it |
+| Environment list | The line about what Codex cannot run here | The things it lists; no such line means the answer is nothing |
+
+When a line is gone, or carries no value you can read, recommend step 4's default for that one
+answer and say as you ask it that the default is where the recommendation came from. Every other
+answer still comes from the section.
+
+Read the per-row models and efforts only from the rows this skill owns, matched by their Work label.
+A row the user added, and a row whose label they reworded, is theirs: the interview passes over it
+and the write leaves it byte for byte. Name those rows when you show the draft, so the user knows
+they stay as they are and can edit them by hand.
+
+## 4. Interview
 
 In this order, one answer each. Each answer covers every row at once; the user names a row to vary
-just that one.
+just that one. Lead with the current value whenever step 3 found one — a re-run that switches one
+model is then one answer, the rest accepted as they stand — and otherwise with the default here:
 
 1. **Model per row.** Recommend the config default for every row.
 2. **Effort per row.** Recommend high for implementation, medium for research, high for review,
@@ -61,7 +98,7 @@ just that one.
    package manager, or device simulators.
 6. **Concurrency cap.** Recommend 2 runs at once.
 
-## 4. Draft
+## 5. Draft
 
 Show the whole section, filled in from the answers, and let the user edit it before anything is
 written:
@@ -99,6 +136,10 @@ Three of those lines vary with the answers:
 - **The threshold and cap lines** carry the numbers the user gave.
 - **The environment line** is omitted outright when the answer was nothing.
 
+On a re-run the draft is the section as it will read afterwards: the section as it stands now, with
+the owned lines carrying the new answers. Everything the user wrote — their guidance, their rows —
+shows in the draft exactly as it already reads.
+
 Offer more rows at this step. Each one needs a label, a model, an effort, and one of three shapes:
 
 | Shape | Invocation |
@@ -111,19 +152,32 @@ Adversarial review is one of these three, not a fourth: it is the review shape a
 adversarially, which is what the default row says. A row that wants a shape outside the three needs
 a wrapper change first, so say so and offer the nearest of the three.
 
-## 5. Write
+## 6. Write
 
-Pick the file: `CLAUDE.md` when it exists, else `AGENTS.md` when it exists, else ask which of the
-two to create. Never create one beside the other.
+The file is the one step 3 picked. The section sits at the top level of it, as `## Codex
+delegation`, standalone — nested under another heading, another setup skill's write can clobber it.
 
-Put the section at the top level of that file, as `## Codex delegation`, standalone — nested under
-another heading, another setup skill's write can clobber it. Append it at the end of the file unless
-the user says where it goes.
+A first run appends the whole section at the end of the file, unless the user says where it goes.
 
-A file that already carries a `## Codex delegation` section is a re-run: keep it single, take the
-interview's recommended answers from its current values, and rewrite only the lines this skill owns.
+A re-run edits each owned line where it stands, one edit per line, matching the line as it reads
+now. That is what keeps the rest of the section intact; a section rewritten wholesale from the draft
+flattens the user's lines back to the draft's.
 
-## 6. Done
+- **The delegating sentence.** Replace whichever of the two forms the section carries, in place.
+- **The rows this skill wrote.** Find each by its Work label and replace that row's Model, Effort,
+  and Invocation cells. A switched model lands in two cells of one row and moves nothing else in the
+  table.
+- **The threshold line, the cap line, and the stop-after-review line.** Replace each in place.
+- **The environment line.** Update it, add it when the answer names something and no line is there,
+  or drop it when the answer is now nothing. A line already there keeps the position it has; a new
+  one goes where the draft puts it, last of the behaviour lines.
+
+Every other line in the section survives byte for byte, in place: the research guidance, rows the
+user added or reworded, and every line they wrote themselves. Afterwards `grep -c '^## Codex
+delegation'` on the file is 1, and the rest of the file — every section before and after — reads as
+it did.
+
+## 7. Done
 
 Name the file you wrote and say the `codex-subagent` skill now reads this repo's delegation rules
 from that section.
