@@ -27,7 +27,7 @@ Read today's names off the OpenAI Codex models documentation:
 curl -sL https://developers.openai.com/codex/models
 ```
 
-The URL answers 308 to a second one, so follow the redirect: `-L` above, or the WebFetch tool, which follows it too. Collect the model identifiers — the page prints each as a `codex -m <identifier>` command — and the reasoning-effort levels, which its CLI selector lists lowest first.
+The URL answers 308 to a second one, so follow the redirect: `-L` above, or the WebFetch tool, which follows it too. Collect the model identifiers — the page prints each as a `codex -m <identifier>` command — and the reasoning-effort levels, which its CLI selector lists lowest first. Read the page through a pipe, `curl -sL <url> | grep -o 'codex -m [^ <"]*'`, or keep it under the session's scratch directory: the page is not written into the repo or the home directory, since this skill writes nothing but the section.
 
 Then read `model` and `model_reasoning_effort` from `~/.codex/config.toml` and mark that model as the config default in the list you show. When the fetch fails, offer the config default on its own and accept any name the user types.
 
