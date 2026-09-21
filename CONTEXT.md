@@ -47,3 +47,15 @@ _Avoid_: Red-team review, hostile review
 **Status check**:
 The one-command look at a run: whether the pid is alive, how long since the progress log last moved, and its last lines. It never kills anything.
 _Avoid_: Poll, heartbeat, watchdog
+
+**Codex delegation**:
+The `## Codex delegation` section a repo's `CLAUDE.md` carries, written by the setup skill and edited by hand after: the routing table, whether to pause for a go-ahead, whether to stop after a review, how long a quiet run may stay quiet, how many runs go at once, and what Codex cannot run here. The delegating skill carries none of this; it only says how a delegation is done.
+_Avoid_: Codex policy, skill config, defaults, routing rules
+
+**Setup skill**:
+The user-invoked skill that interviews for a repo's Codex delegation and writes the section into `CLAUDE.md`, or `AGENTS.md` when that is the repo's instructions file, updating an existing one in place and keeping hand edits.
+_Avoid_: Installer, wizard, init
+
+**Routing table**:
+The table inside the Codex delegation section that maps a kind of work to the model and effort it runs with. It names routes, never behaviour.
+_Avoid_: Model table, delegation table

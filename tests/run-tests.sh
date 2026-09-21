@@ -330,39 +330,37 @@ case_run_passes_through_exit_code() {
 
 # --- ticket 03 ---
 
-# The status check, copied verbatim from the "Status check" section of SKILL.md, so this test
-# covers the command as documented. Only two things change in the copy: the snippet's first line
-# (`d=<run dir>`) becomes this function's argument, and the body is indented into the function.
-# Keep the two in step: an edit to the skill's snippet is an edit here.
-t3_status_check() { # t3_status_check <run dir>
-  local d=$1
-  pid=$(cat "$d/pid")
-  if kill -0 "$pid" 2>/dev/null; then
-    echo "pid $pid: alive"
-  else
-    echo "pid $pid: exited, exit code $(cat "$d/exit-code" 2>/dev/null || echo 'not recorded')"
-  fi
-  newest=0
-  for f in "$d/events.jsonl" "$d/progress.log"; do
-    # GNU stat first: BSD stat rejects -c, and BSD's -f prints a mount point under GNU.
-    m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null) || m=0
-    [ "$m" -gt "$newest" ] && newest=$m
-  done
-  echo "seconds since the log last moved: $(( $(date +%s) - newest ))"
-  for f in "$d/events.jsonl" "$d/progress.log"; do
-    if [ -s "$f" ]; then
-      echo "--- tail $f"
-      tail -n 5 "$f"
-    fi
-  done
+# The status check is the wrapper's own subcommand, so these cases call it rather than copying a
+# snippet out of SKILL.md: the skill and the test can no longer drift apart.
+
+t3_code=0
+t3_out=""
+t3_err=""
+
+t3_check() { # t3_check <status argument>...
+  bash "$WRAPPER" status "$@" >"$case_dir/status-out" 2>"$case_dir/status-err"
+  t3_code=$?
+  t3_out=$(cat "$case_dir/status-out")
+  t3_err=$(cat "$case_dir/status-err")
 }
 
 t3_seconds_since() { # t3_seconds_since <check output>
   printf '%s\n' "$1" | sed -n 's/^seconds since the log last moved: //p'
 }
 
-case_status_check_mid_run_and_after() {
-  local wrapper_pid run_dir="" mid after status secs i
+t3_assert_fresh_seconds() { # t3_assert_fresh_seconds <check output> <label>
+  local secs
+  secs=$(t3_seconds_since "$1")
+  if [[ -n "$secs" ]] && ((secs >= 0 && secs < 10)); then
+    pass "$2 (${secs}s since it moved)"
+  else
+    fail "$2 (got '$secs')"
+  fi
+}
+
+# A run that is still going: the pid is alive and the log moved a moment ago.
+case_status_mid_run() {
+  local wrapper_pid run_dir="" status i
 
   printf 'watch me work\n' >"$case_dir/prompt"
   export FAKE_CODEX_SLEEP=3
@@ -383,32 +381,168 @@ case_status_check_mid_run_and_after() {
   fi
   pass "run directory with a pid file appears while the run is live"
 
-  mid=$(t3_status_check "$run_dir")
-  assert_contains "$mid" "alive" "mid-run check reports the pid alive"
-  assert_not_contains "$mid" "exited" "mid-run check does not report an exit"
-  secs=$(t3_seconds_since "$mid")
-  if [[ -n "$secs" ]] && ((secs >= 0 && secs < 10)); then
-    pass "mid-run check reports a fresh log (${secs}s since it moved)"
-  else
-    fail "mid-run check reports a fresh log (got '$secs')"
-  fi
+  t3_check "$run_dir"
+  assert_eq 0 "$t3_code" "status on a live run exits 0"
+  assert_contains "$t3_out" "pid $(cat "$run_dir/pid"): alive" "mid-run status reports the pid alive"
+  assert_not_contains "$t3_out" "exited" "mid-run status does not report an exit"
+  t3_assert_fresh_seconds "$t3_out" "mid-run status reports a fresh log"
 
   wait "$wrapper_pid"
   status=$?
   assert_eq 0 "$status" "the sleeping run exits 0"
+}
 
-  after=$(t3_status_check "$run_dir")
-  assert_contains "$after" "exited" "check after the run reports the pid exited"
-  assert_contains "$after" "exit code 0" "check after the run shows the recorded exit code"
-  assert_contains "$after" "--- tail $run_dir/events.jsonl" "check tails events.jsonl"
-  assert_contains "$after" "thread.started" "events tail shows the event stream"
-  assert_contains "$after" "--- tail $run_dir/progress.log" "check tails progress.log"
-  assert_contains "$after" "fake-codex: progress 3" "progress tail shows the last stderr lines"
-  if [[ -n "$(t3_seconds_since "$after")" ]]; then
-    pass "check after the run still reports seconds since the log moved"
+# A finished run: the pid has exited and the exit code shown is the one the fake returned.
+case_status_after_exit() {
+  export FAKE_CODEX_EXIT=4
+  t2_write_prompt "$case_dir/prompt"
+  t2_run "$case_dir/prompt"
+  assert_eq 4 "$t2_status" "the run exits with the fake's code"
+
+  t3_check "$t2_run_dir"
+  assert_eq 0 "$t3_code" "status on a finished run exits 0"
+  assert_contains "$t3_out" "pid $(cat "$t2_run_dir/pid"): exited, exit code 4" \
+    "status reports the pid exited with the fake's exit code"
+  assert_contains "$t3_out" "--- tail $t2_run_dir/events.jsonl" "status tails events.jsonl"
+  assert_contains "$t3_out" "thread.started" "the events tail shows the event stream"
+  assert_contains "$t3_out" "--- tail $t2_run_dir/progress.log" "status tails progress.log"
+  assert_contains "$t3_out" "fake-codex" "the progress tail shows the last stderr lines"
+  if [[ -n "$(t3_seconds_since "$t3_out")" ]]; then
+    pass "status still reports seconds since the log moved after the run"
   else
-    fail "check after the run still reports seconds since the log moved"
+    fail "status still reports seconds since the log moved after the run"
   fi
+}
+
+# The thread id is on the status output, so a follow-up needs no second file read.
+case_status_thread_id() {
+  export FAKE_CODEX_THREAD_ID="$t4_thread"
+  t2_write_prompt "$case_dir/prompt"
+  t2_run "$case_dir/prompt"
+
+  t3_check "$t2_run_dir"
+  assert_eq 0 "$t3_code" "status after a run with a thread exits 0"
+  assert_contains "$t3_out" "thread id: $t4_thread" "status prints the thread id"
+}
+
+# A review says what diff Codex read, straight from the run's own record of the scope.
+case_status_review_scope() {
+  t5_write_focus "$case_dir/focus"
+  t5_review "$case_dir/focus" --uncommitted
+  assert_eq 0 "$t5_status" "the review exits 0"
+
+  t3_check "$t5_run_dir"
+  assert_eq 0 "$t3_code" "status on a review exits 0"
+  assert_contains "$t3_out" "review scope: --uncommitted" "status prints the review scope"
+  assert_contains "$t3_out" "review scope delivered as: instructions" \
+    "status prints how the scope was delivered"
+}
+
+# An abandoned resume shows up at the first status check, with the reason the wrapper recorded.
+case_status_resume_fallback() {
+  export FAKE_CODEX_RESUME_EXIT=1
+  export FAKE_CODEX_RESUME_EMIT_THREAD=0
+  export FAKE_CODEX_THREAD_ID="$t4_fresh_thread"
+  t4_write_prompt "$case_dir/prompt"
+  t4_run "$case_dir/prompt" --resume "$t4_thread"
+  assert_file_exists "$t4_run_dir/resume-fallback" "the run dir records the abandoned resume"
+
+  t3_check "$t4_run_dir"
+  assert_eq 0 "$t3_code" "status on a fallen-back run exits 0"
+  assert_contains "$t3_out" "resume fell back to a fresh run:" "status flags the fallback"
+  assert_contains "$t3_out" "$(cat "$t4_run_dir/resume-fallback")" \
+    "status quotes the recorded reason"
+}
+
+# A path that is not a run directory is an error, not an empty report.
+case_status_missing_directory() {
+  t3_check "$case_dir/no-such-run"
+  assert_eq 64 "$t3_code" "status on a missing directory exits 64"
+  assert_eq "" "$t3_out" "status on a missing directory prints no report"
+  assert_contains "$t3_err" "codex-subagent:" "status on a missing directory says so on stderr"
+}
+
+# Status takes no flags: one is a mistake, not a run directory.
+case_status_rejects_a_flag() {
+  t2_write_prompt "$case_dir/prompt"
+  t2_run "$case_dir/prompt"
+
+  t3_check --read-only "$t2_run_dir"
+  assert_eq 64 "$t3_code" "status with a flag exits 64"
+  assert_eq "" "$t3_out" "status with a flag prints no report"
+}
+
+case_status_missing_argument() {
+  t3_check
+  assert_eq 64 "$t3_code" "status with no run directory exits 64"
+  assert_eq "" "$t3_out" "status with no run directory prints no report"
+  assert_contains "$t3_err" "codex-subagent:" "status with no run directory says so on stderr"
+}
+
+# A run directory this wrapper wrote holds a `pid` file. A readable directory without one is some
+# other directory, so the path is wrong: an error, not a report with nothing in it.
+case_status_plain_directory() {
+  mkdir -p "$case_dir/not-a-run"
+  t3_check "$case_dir/not-a-run"
+  assert_eq 64 "$t3_code" "status on a directory with no pid file exits 64"
+  assert_eq "" "$t3_out" "status on a directory with no pid file prints no report"
+  assert_contains "$t3_err" "codex-subagent:" "status on a plain directory says so on stderr"
+}
+
+# A run directory checked before codex has started: the wrapper has written the prompt but no pid
+# yet. That is a real run directory, so the check reports it rather than refusing it.
+case_status_before_codex_starts() {
+  mkdir -p "$case_dir/early-run"
+  printf 'prompt\n' >"$case_dir/early-run/prompt.md"
+  t3_check "$case_dir/early-run"
+  assert_eq 0 "$t3_code" "status on a run that has not started exits 0"
+  assert_contains "$t3_out" "pid: not started yet" "status says the run has not started"
+  assert_not_contains "$t3_out" "alive" "status does not call an unstarted run alive"
+  assert_contains "$t3_out" "no progress log yet" "status reports no log to age yet"
+}
+
+# A finished run's state comes from `exit-code`, not from the pid: the fixture's pid is this test
+# shell, alive and unrelated, which is exactly what a recycled pid looks like from here.
+case_status_exit_code_beats_a_live_pid() {
+  mkdir -p "$case_dir/finished"
+  printf '%s\n' "$$" >"$case_dir/finished/pid"
+  printf '3\n' >"$case_dir/finished/exit-code"
+
+  t3_check "$case_dir/finished"
+  assert_eq 0 "$t3_code" "status on a finished fixture exits 0"
+  assert_contains "$t3_out" "pid $$: exited, exit code 3" \
+    "a recorded exit code is reported even though the pid is alive"
+  assert_not_contains "$t3_out" "alive" "the live pid is not reported as this run still going"
+}
+
+# A pid file that holds no pid means the wrapper did not write this directory. `-1` is the one
+# worth a case of its own: `kill -0 -1` signals every process the user owns, so it never gets there.
+case_status_rejects_a_garbage_pid() {
+  mkdir -p "$case_dir/garbage-pid" "$case_dir/negative-pid"
+  printf 'not-a-pid\n' >"$case_dir/garbage-pid/pid"
+  printf -- '-1\n' >"$case_dir/negative-pid/pid"
+
+  t3_check "$case_dir/garbage-pid"
+  assert_eq 64 "$t3_code" "status on a non-numeric pid file exits 64"
+  assert_eq "" "$t3_out" "status on a non-numeric pid file prints no report"
+  assert_contains "$t3_err" "codex-subagent:" "status on a non-numeric pid says so on stderr"
+
+  t3_check "$case_dir/negative-pid"
+  assert_eq 64 "$t3_code" "status on a negative pid exits 64"
+  assert_eq "" "$t3_out" "status on a negative pid prints no report"
+}
+
+# Before the first event lands there is no log to age, so the seconds line says so rather than
+# subtracting the 0 sentinel and reporting the age of the epoch.
+case_status_before_the_log_moves() {
+  mkdir -p "$case_dir/no-logs"
+  printf '%s\n' "$$" >"$case_dir/no-logs/pid"
+
+  t3_check "$case_dir/no-logs"
+  assert_eq 0 "$t3_code" "status with no log files exits 0"
+  assert_contains "$t3_out" "pid $$: alive" "status with no log files reads the pid"
+  assert_eq "no progress log yet" "$(t3_seconds_since "$t3_out")" \
+    "status with no log files says there is no progress log yet"
 }
 
 
@@ -883,12 +1017,18 @@ case_flag_value_that_is_a_flag() {
   assert_eq 0 "$status" "none of them reach codex"
 }
 
-# Choosing a model is a CLAUDE.md edit, never a plugin release, so no file the plugin ships may
-# name one.
+# Choosing a model is a CLAUDE.md edit, never a plugin release, so nothing the plugin runs may name
+# one: not the wrapper, not either skill, not the manifest. The plugin README is excluded on purpose
+# — it shows one example of the section the setup skill writes, copied from a real run, and a real
+# run names the model it ran on. An example in prose starts no run; a name in the wrapper or a skill
+# would.
 case_plugin_names_no_model() {
   local hits
-  hits=$(grep -rn -- 'gpt-' "$REPO_ROOT/plugins" 2>/dev/null)
-  assert_eq "" "$hits" "no file under plugins/ names a model"
+  hits=$(grep -rn -- 'gpt-' \
+    "$REPO_ROOT/plugins/codex-subagent/scripts" \
+    "$REPO_ROOT/plugins/codex-subagent/skills" \
+    "$REPO_ROOT/plugins/codex-subagent/.claude-plugin" 2>/dev/null)
+  assert_eq "" "$hits" "no wrapper, skill or manifest file under plugins/ names a model"
 }
 
 # --- review focus vs scope ---
@@ -1047,7 +1187,14 @@ run_case case_run_prints_run_dir_first
 run_case case_run_passes_through_exit_code
 
 # ticket 03
-run_case case_status_check_mid_run_and_after
+run_case case_status_mid_run
+run_case case_status_after_exit
+run_case case_status_thread_id
+run_case case_status_review_scope
+run_case case_status_resume_fallback
+run_case case_status_missing_directory
+run_case case_status_rejects_a_flag
+run_case case_status_missing_argument
 
 # ticket 05
 run_case case_review_scope_uncommitted
@@ -1087,6 +1234,12 @@ run_case case_review_focus_default_scope_dirty
 run_case case_review_focus_default_scope_clean
 run_case case_review_empty_focus_keeps_the_flag
 run_case case_review_scope_records_delivery
+
+run_case case_status_plain_directory
+run_case case_status_before_codex_starts
+run_case case_status_exit_code_beats_a_live_pid
+run_case case_status_rejects_a_garbage_pid
+run_case case_status_before_the_log_moves
 
 printf 'PASS: %s FAIL: %s\n' "$pass_count" "$fail_count"
 ((fail_count == 0)) || exit 1

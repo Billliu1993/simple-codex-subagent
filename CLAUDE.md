@@ -15,3 +15,8 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 ### Claude delegation
 
 When an Agent-tool subagent would run on Fable, pass `model: "opus"` so it runs on Opus instead.
+
+## Documentation Style
+
+- Write each prose paragraph or list item on a single physical line; do not hard-wrap sentences to a fixed column.
+- Keep structural line breaks for headings, lists, tables, and fenced code blocks.

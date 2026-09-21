@@ -9,10 +9,14 @@
 # Usage:
 #   codex-subagent.sh run    --model <m> --effort <e> [--read-only] [--resume <thread-id>]
 #   codex-subagent.sh review --model <m> --effort <e> [--uncommitted | --base <branch> | --commit <sha>]
+#   codex-subagent.sh status <run dir>
 #
 # The prompt (run) or focus (review) arrives on stdin. The first line of stdout is the run
-# directory. The exit status is Codex's own, except for the wrapper's own failures:
-#   64 unknown subcommand, unknown flag, or conflicting review scope
+# directory. `status` starts nothing: it reads one run directory and prints what it found, and
+# exits 0 whenever it read one. The exit status is Codex's own, except for the wrapper's own
+# failures:
+#   64 unknown subcommand, unknown flag, conflicting review scope, or a status argument that is
+#      missing, a flag, one of several, or a path that is not a readable run directory
 #   65 missing --model
 #   66 missing --effort
 #   67 stdin is a terminal
@@ -41,6 +45,7 @@ resume_id=""
 review_scope=""       # --uncommitted, --base, or --commit
 review_scope_value=""
 run_dir=""
+status_dir=""          # the run directory `status` reads
 git_toplevel=""
 codex_stdin=""         # what codex reads on stdin; the buffered prompt unless set otherwise
 
@@ -48,8 +53,13 @@ parse_args() {
   subcommand=${1:-}
   case "$subcommand" in
     run | review) shift ;;
-    "") die 64 "missing subcommand; expected 'run' or 'review'" ;;
-    *) die 64 "unknown subcommand '$subcommand'; expected 'run' or 'review'" ;;
+    status)
+      shift
+      parse_status_args "$@"
+      return
+      ;;
+    "") die 64 "missing subcommand; expected 'run', 'review' or 'status'" ;;
+    *) die 64 "unknown subcommand '$subcommand'; expected 'run', 'review' or 'status'" ;;
   esac
 
   while (($# > 0)); do
@@ -102,6 +112,18 @@ parse_args() {
         ;;
     esac
   done
+}
+
+# `status` takes one positional argument and nothing else. A flag is caught before the count is
+# checked, so a stray `--read-only` is named as the flag it is rather than as a second run directory.
+parse_status_args() { # parse_status_args <arg>...
+  local arg
+  for arg in "$@"; do
+    [[ $arg != -* ]] || die 64 "unknown flag '$arg'; status takes no flags"
+  done
+  (($# > 0)) || die 64 "status needs a run directory"
+  (($# == 1)) || die 64 "status takes one run directory; got $#"
+  status_dir=$1
 }
 
 check_preconditions() {
@@ -352,8 +374,107 @@ run_review() {
   return "$status"
 }
 
+# One of the facts a run only sometimes has: printed as `<label>: <contents>` when the file is
+# there with something in it, and passed over when it is not.
+print_if_present() { # print_if_present <label> <file>
+  [[ -s $2 ]] || return 0
+  printf '%s: %s\n' "$1" "$(cat "$2")"
+}
+
+# The newest mtime among the files given, as a Unix timestamp, or 0 when none of them can be read.
+status_newest_mtime() { # status_newest_mtime <file>...
+  local newest=0 f m
+  for f in "$@"; do
+    # GNU stat first: BSD stat rejects -c, and BSD's -f prints a mount point under GNU.
+    m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null) || m=0
+    [[ $m =~ ^[0-9]+$ ]] || m=0
+    if ((m > newest)); then newest=$m; fi
+  done
+  printf '%s\n' "$newest"
+}
+
+# What a status check reads and prints, in the order it prints it: the pid's state, how long the
+# progress log has been still, then the facts a run only sometimes has -- the thread id, a review's
+# scope, an abandoned resume -- each only when the run directory holds the file that carries it,
+# then the tail of each progress log file that has anything in it.
+#
+# A run directory holds `prompt.md` from the moment the wrapper starts reading stdin and `pid` from
+# the moment codex is running, and the pid file always holds a pid. A directory with neither file,
+# or a pid file holding something else, is not one this wrapper wrote, so the path is wrong and
+# saying so beats reporting on a directory nobody asked about.
+#
+# The pid's state comes from `exit-code` first and from the process only when there is no such file.
+# A recorded exit code means the run is over, and a pid the OS has since handed to something else
+# would otherwise be read as this run, still alive.
+#
+# It reads and prints and does nothing else: it kills nothing, holds no threshold, and never
+# decides that a quiet run is a stuck one. That judgement belongs to the repo's CLAUDE.md and the
+# user, so the seconds are reported and left alone.
+print_status() { # print_status <run dir>
+  local d=$1 pid exit_code newest line value f
+  [[ -d $d && -r $d && -x $d ]] || die 64 "cannot read run directory '$d'"
+
+  # The wrapper writes `prompt.md` the moment it starts reading stdin and `pid` only once codex is
+  # running, so a directory with the first and not the second is a run that has not started yet:
+  # a real run directory, checked early. A directory with neither is not one this wrapper wrote.
+  if [[ ! -f $d/pid ]]; then
+    [[ -f $d/prompt.md ]] || die 64 "'$d' is not a run directory: no pid file"
+    printf 'pid: not started yet\n'
+  else
+    pid=$(cat "$d/pid" 2>/dev/null) || pid=""
+    # Checked before `kill -0` ever sees it: `kill -0 -1` signals every process the user owns.
+    [[ $pid =~ ^[0-9]+$ ]] || die 64 "'$d' is not a run directory: pid file holds '$pid'"
+
+    if [[ -f $d/exit-code ]]; then
+      exit_code=$(cat "$d/exit-code" 2>/dev/null) || exit_code=""
+      printf 'pid %s: exited, exit code %s\n' "$pid" "${exit_code:-not recorded}"
+    elif kill -0 "$pid" 2>/dev/null; then
+      printf 'pid %s: alive\n' "$pid"
+    else
+      printf 'pid %s: exited, exit code not recorded\n' "$pid"
+    fi
+  fi
+
+  newest=$(status_newest_mtime "$d/events.jsonl" "$d/progress.log")
+  if ((newest > 0)); then
+    printf 'seconds since the log last moved: %s\n' "$(($(date +%s) - newest))"
+  else
+    # No log file to age yet, so there is no silence to measure: the 0 sentinel is not a timestamp.
+    printf 'seconds since the log last moved: no progress log yet\n'
+  fi
+
+  print_if_present 'thread id' "$d/thread-id"
+  if [[ -s $d/review-scope ]]; then
+    while IFS= read -r line; do
+      if [[ $line == delivered-as:* ]]; then
+        value=${line#delivered-as:}
+        printf 'review scope delivered as:%s\n' "$value"
+      else
+        printf 'review scope: %s\n' "$line"
+      fi
+    done <"$d/review-scope"
+  fi
+  print_if_present 'resume fell back to a fresh run' "$d/resume-fallback"
+
+  for f in "$d/events.jsonl" "$d/progress.log"; do
+    if [[ -s $f ]]; then
+      printf -- '--- tail %s\n' "$f"
+      tail -n 5 "$f"
+    fi
+  done
+}
+
 main() {
   parse_args "$@"
+
+  # A status check needs none of the run preconditions: no model, no effort, no prompt on stdin, no
+  # git repository and no codex on PATH. It reads a directory that an earlier run already made, so
+  # it makes no run directory of its own either.
+  if [[ $subcommand == status ]]; then
+    print_status "$status_dir"
+    exit 0
+  fi
+
   check_preconditions
   make_run_dir
 
