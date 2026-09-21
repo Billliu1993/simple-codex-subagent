@@ -15,5 +15,5 @@ The first release put two behaviour rules in the delegating skill: propose and w
 ## Consequences
 
 - The verification step after an implementation run stays in the skill: a delegation is not done until its result is checked, and that is not a choice a repo should make differently.
-- A repo without the section gets no pause and no stop, and the skill does not warn about that; the section is the repo's responsibility.
+- A repo without the section gets no pause and no stop; the skill names the setup skill once and carries on, and the section is the repo's responsibility.
 - The setup skill's default is straight delegation, not the pause the first release shipped, so updating the plugin changes behaviour for a repo that relied on the skill's pause. The version bump to 0.3.0 marks that.

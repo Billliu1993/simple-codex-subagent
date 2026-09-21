@@ -1,10 +1,10 @@
 ---
 name: setup-codex-delegation
-description: "Interview this repo for its `## Codex delegation` section — routing table, pause rule, quiet-run threshold, concurrency cap — and write it into CLAUDE.md."
+description: "Interview this repo for its `## Codex delegation` section — routing table, pause rule, quiet-run threshold, concurrency cap — and write it into the repo's CLAUDE.md or AGENTS.md."
 disable-model-invocation: true
 ---
 
-A repo's `## Codex delegation` section says when work goes to Codex and how you behave around a delegation. The `codex-subagent` skill says only how a delegation is done, and reads the rest from that section. Interview the user for it and write it into one file. Nothing outside that file changes: no docs, no scripts, no config.
+A repo's `## Codex delegation` section says when work goes to Codex and how you behave around a delegation. The `codex-subagent` skill says only how a delegation is done, and reads the rest from that section. Interview the user for it and write it. The section is the one thing this skill writes.
 
 Ask one question at a time, each led by the recommended answer, so the user can accept it in a word. AskUserQuestion fits that shape — one question per call, the recommendation first among the options — and plain text asks it just as well.
 
@@ -17,7 +17,7 @@ codex --version
 codex login status
 ```
 
-A signed-in CLI prints one line naming how it is signed in. If `codex` is not on `PATH`, or that line says it is not signed in, tell the user, name `codex login` as the fix, and stop there — no interview, no draft, no write.
+A signed-in CLI prints one line naming how it is signed in. If `codex` is not on `PATH`, or that line says it is not signed in, tell the user, name `codex login` as the fix, and stop there.
 
 ## 2. Model discovery
 
@@ -27,9 +27,9 @@ Read today's names off the OpenAI Codex models documentation:
 curl -sL https://developers.openai.com/codex/models
 ```
 
-The URL answers 308 to a second one, so follow the redirect: `-L` above, or the WebFetch tool, which follows it too. Collect the model identifiers — the page prints each as a `codex -m <identifier>` command — and the reasoning-effort levels, which its CLI selector lists lowest first. Read the page through a pipe, `curl -sL <url> | grep -o 'codex -m [^ <"]*'`, or keep it under the session's scratch directory: the page is not written into the repo or the home directory, since this skill writes nothing but the section.
+The URL redirects once; `-L` follows it, and so does the WebFetch tool. The page names each model as a `codex -m <identifier>` command and lists the reasoning-effort levels in its CLI selector, lowest first, so collect both straight from the response: `curl -sL <url> | grep -o 'codex -m [^ <"]*'` yields the identifiers. The page stays in the pipe.
 
-Then read `model` and `model_reasoning_effort` from `~/.codex/config.toml` and mark that model as the config default in the list you show. When the fetch fails, offer the config default on its own and accept any name the user types.
+Read `model` and `model_reasoning_effort` from `~/.codex/config.toml`: that model is the config default, marked as such in the list you show. When the fetch fails, the list is the config default alone, and any name the user types is accepted. When the config is unreadable too, ask the user for the model name.
 
 Nothing is validated: no run is made to check a model name. A typo surfaces as a failed run, the way a bad model name always does.
 

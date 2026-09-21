@@ -7,11 +7,11 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh *)
 
 Codex is the subagent; you plan and verify. Every run goes through the bundled wrapper, invoked as `bash ${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh`, written exactly that way: the pre-approval matches that literal prefix, so quoting the path turns every dispatch into a permission prompt. Never call `codex` yourself.
 
-Whether and when work goes to Codex, and how you behave around a delegation, is set by this repo's `## Codex delegation` section in CLAUDE.md, or in AGENTS.md when that is the repo's instructions file.
+This repo's `## Codex delegation` section, in its CLAUDE.md or AGENTS.md, decides whether and when work goes to Codex and how you behave around a delegation. A repo without that section gets the mechanics below and nothing more: say so once, name `/codex-subagent:setup-codex-delegation` as the skill that writes it, and carry on.
 
 ## Model and sandbox
 
-`--model` and `--effort` are required on every call; take them from the user or from the routing table row. `--read-only` picks the read-only sandbox, so the run leaves the tree untouched; without it the run gets the workspace-write sandbox, which a run that edits needs. The routing table row says which sandbox a kind of work gets, and a brief that names a path for Codex to write to needs the flag off.
+`--model` and `--effort` are required on every call; take them from the user or from the routing table row. The row's invocation also carries the sandbox: `--read-only` for a run that only reads, so the tree stays untouched, and no flag for a run that writes, which gives it the workspace-write sandbox. A brief that names a path for Codex to write to is a run that writes.
 
 ## Build the prompt
 
