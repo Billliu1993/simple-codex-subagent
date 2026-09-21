@@ -10,12 +10,10 @@ Codex is the subagent; you plan and verify. Every run goes through the bundled w
 matches that literal prefix, so quoting the path turns every dispatch into a permission prompt.
 Never call `codex` yourself.
 
-## When to delegate
+Whether and when work goes to Codex, and how you behave around a delegation, is set by this repo's
+`## Codex delegation` section in CLAUDE.md.
 
-- **The user asks for Codex** — delegate straight away.
-- **This repo's CLAUDE.md routing table sends this kind of work to Codex, and the user did not ask**
-  — propose the delegation, name the model and effort the table gives for that row, and wait for a
-  go-ahead before dispatching.
+## Model and sandbox
 
 `--model` and `--effort` are required on every call; take them from the user or from the routing
 table row. Pass `--read-only` for exploration and research, so the run leaves the tree untouched.
@@ -68,7 +66,7 @@ answers the question on its own.
 
 The check reads and prints, and that is all it does: it kills nothing and holds no threshold. How
 long a quiet run may stay quiet, and what to do when it does, is a decision for this repo's
-CLAUDE.md and the user.
+`## Codex delegation` section and the user.
 
 ## Resume
 
@@ -121,9 +119,8 @@ When the user asks for an adversarial review, prepend this block to the focus:
 > orderings, and states that break it; one concrete failing case is worth more than any number of
 > style notes. Report severity-first: the worst thing you can make happen, first.
 
-The findings arrive in `<run dir>/final-message.md`. A review edits nothing, and neither do you:
-present the findings and stop there. The user picks which ones matter, and that choice is what a
-later run fixes.
+The findings arrive in `<run dir>/final-message.md`. A review edits nothing: the run leaves the tree
+untouched.
 
 ## Report
 
