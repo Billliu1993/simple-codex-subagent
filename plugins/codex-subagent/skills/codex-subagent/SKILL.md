@@ -47,7 +47,7 @@ The wrapper's first line of stdout is the run directory. That path is the run id
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh status <run dir>
 ```
 
-Run it when the user asks how a run is doing, and before you settle in to wait on a final message. It reports the pid alive or exited with its exit code, seconds since the progress log last moved, the thread id, a review's scope, an abandoned resume, and the tail of each log file, so one check answers the question on its own.
+Run it when the user asks how a run is doing, and before you settle in to wait on a final message. One check answers the question: the pid's state, how long the progress log has been still, the thread id, a review's scope, an abandoned resume, and the log tails are all in its output, so the run directory stays closed.
 
 The check reads and prints, and that is all it does: it kills nothing and holds no threshold. How long a quiet run may stay quiet, and what to do when it does, is a decision for this repo's `## Codex delegation` section and the user.
 
@@ -59,9 +59,9 @@ bash ${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh run --model <m> --effort <e
 
 Resume when the task is a follow-up on a run from this conversation and you have its thread id from `<run dir>/thread-id`. Codex still holds what it explored, so send only the delta — "now fix items 2 and 4" — and name any file the delta adds. The mandatory rules travel with the prompt, not with the thread, so repeat them in every resumed prompt too.
 
-The sandbox is chosen per call and never inherited from the thread: pass `--read-only` when the follow-up only reads, and leave it off when it edits, judging the follow-up on its own. A read-only thread resumed without `--read-only` can write.
+The sandbox is chosen per call, never inherited from the thread: judge the follow-up on its own by the rule under Model and sandbox. A read-only thread resumed without `--read-only` can write.
 
-A resume that fails before Codex starts the thread is abandoned rather than retried: the wrapper prints `codex-subagent: resume of <id> failed before thread start; starting a fresh run` on stderr, records the reason in `<run dir>/resume-fallback`, and runs the same prompt as a fresh run, whose id `thread-id` then holds. A stale or missing thread is only one cause; a bad model name, an auth failure, or a transient CLI error looks the same from here. So when that file is there, tell the user the resume failed before the thread started and the result comes from a fresh run, and quote the one-line reason from `<run dir>/resume-fallback` plus the tail of `<run dir>/resume-events.jsonl` and `<run dir>/resume-progress.log` — the failed attempt's own files, which the wrapper keeps — so they can see which cause it was. A delta-only prompt may well have been too thin for a fresh run, which is the other half of what they need to know.
+A resume that fails before Codex starts the thread is abandoned rather than retried: the wrapper records the reason in `<run dir>/resume-fallback` and runs the same prompt as a fresh run, whose id `thread-id` then holds. A stale or missing thread is only one cause; a bad model name, an auth failure, or a transient CLI error looks the same from here. So when that file is there, tell the user the resume failed before the thread started and the result comes from a fresh run, and quote the one-line reason from `<run dir>/resume-fallback` plus the tail of `<run dir>/resume-events.jsonl` and `<run dir>/resume-progress.log` — the failed attempt's own files, which the wrapper keeps — so they can see which cause it was. A delta-only prompt may well have been too thin for a fresh run, which is the other half of what they need to know.
 
 ## Review
 
@@ -73,7 +73,7 @@ Scope the diff with one of `--uncommitted`, `--base <branch>`, or `--commit <sha
 
 The focus is free text on stdin, and may be empty. It steers what Codex concentrates on, so send what the user is worried about, named by path and symbol.
 
-Codex's review command takes either a scope flag or custom instructions, never both. So when there is a focus the wrapper drops the flag and states the scope in words as the first line of the instructions, ahead of your focus. That is the wrapper's job and it does it from the same scope it would have passed as a flag: send only the focus, and never a scope sentence of your own.
+Codex's review command takes either a scope flag or custom instructions, never both. So when there is a focus the wrapper drops the flag and states the scope in words as the first line of the instructions, ahead of your focus, from the same scope it would have passed as a flag. Send only the focus; the scope sentence is the wrapper's.
 
 When the user asks for an adversarial review, prepend this block to the focus:
 
@@ -85,9 +85,9 @@ The findings arrive in `<run dir>/final-message.md`. A review edits nothing: the
 
 The wrapper exits with Codex's own status, so that status decides which branch you take.
 
-**Exit 0.** Read `<run dir>/final-message.md` and report from it. That one file is the whole result; leave `events.jsonl` and `progress.log` unread, so the progress stream stays out of your context.
+**Exit 0.** Read `<run dir>/final-message.md` and report from it. That one file is the whole of it; leave `events.jsonl` and `progress.log` unread, so the progress stream stays out of your context.
 
-**Any other exit.** Report the run as failed, with the exit code, `tail -n 40 <run dir>/progress.log` and `tail -n 20 <run dir>/events.jsonl`. The failure may sit in either: stderr holds CLI-level errors and is often empty, so the event stream is usually where the run stops. A failed run produced no result, so there is nothing to summarise as progress.
+**Any other exit.** Report the run as failed, with the exit code, `tail -n 40 <run dir>/progress.log` and `tail -n 20 <run dir>/events.jsonl`. The failure may sit in either: stderr holds CLI-level errors and is often empty, so the event stream is usually where the run stops. A failed run produced no final message, so there is nothing to summarise as progress.
 
 After an implementation run, check Codex's claims before the user hears them: read `git diff` and `git status`, confirm the change matches what the final message describes, and re-run the verification Codex reports as passing. Tell the user what you confirmed and what you could not.
 

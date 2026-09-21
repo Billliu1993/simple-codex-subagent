@@ -7,7 +7,7 @@ allowed-tools: Bash(bash .claude/skills/check-codex-updates/check.sh*)
 
 Codex ships several releases a week. This skill is how the maintainer re-verifies, in one command, that `plugins/codex-subagent/scripts/codex-subagent.sh` still matches the CLI it drives.
 
-Neither the script nor you edit the wrapper. The maintainer decides what changes; the report only says what moved.
+The script reads and reports. What changes in the wrapper is the maintainer's decision, made from the report and applied by hand in the steps below.
 
 ## Run it
 
@@ -15,7 +15,7 @@ Neither the script nor you edit the wrapper. The maintainer decides what changes
 bash .claude/skills/check-codex-updates/check.sh
 ```
 
-From the repo root. It takes no model call: every Codex invocation is `--help`.
+Run it from the repo root. Every Codex invocation is `--help`, so it costs no model call.
 
 Exit `0` means no drift and the installed version is the latest. Exit `1` means there is something to act on. Exit `2` is the script's own failure, and its one-line reason goes to stderr.
 

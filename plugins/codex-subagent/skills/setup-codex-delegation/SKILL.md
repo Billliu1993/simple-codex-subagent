@@ -31,7 +31,7 @@ The URL redirects once; `-L` follows it, and so does the WebFetch tool. The page
 
 Read `model` and `model_reasoning_effort` from `~/.codex/config.toml`: that model is the config default, marked as such in the list you show. When the fetch fails, the list is the config default alone, and any name the user types is accepted. When the config is unreadable too, ask the user for the model name.
 
-Nothing is validated: no run is made to check a model name. A typo surfaces as a failed run, the way a bad model name always does.
+Take the names as typed, with no run to check them: a typo surfaces as a failed run, the way a bad model name always does.
 
 ## 3. The file, and the section already in it
 
