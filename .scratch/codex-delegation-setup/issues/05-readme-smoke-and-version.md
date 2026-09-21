@@ -72,3 +72,4 @@
   The GitHub marketplace form of the install is likewise unverified on this branch: it resolves the
   default branch, which is still 0.2.3 until this merges. Every criterion is ticked; the `Status:`
   line is left at `ready-for-agent` for the orchestrator.
+- 2026-09-20: the "short form resolves / setup invoked as a slash command" gap was closed for the setup skill by a headless `--plugin-dir` session; see ticket 03. The `/codex-subagent` short form was not re-checked, since that skill is unchanged in layout since 0.2.3.
