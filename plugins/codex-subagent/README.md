@@ -77,14 +77,11 @@ Delegate through the `codex-subagent` skill by the table below.
 | Work | Model | Effort | Invocation |
 | --- | --- | --- | --- |
 | Implementation — including spikes and prototypes | `gpt-5.6-sol` | `high` | `/codex-subagent --model gpt-5.6-sol --effort high <task>` |
-| Research and exploration — any source | `gpt-5.6-sol` | `medium` | `/codex-subagent --model gpt-5.6-sol --effort medium [--read-only] <task>` |
+| Research and exploration — any source | `gpt-5.6-sol` | `medium` | `/codex-subagent --model gpt-5.6-sol --effort medium --read-only <task>` |
 | Review — findings on a diff | `gpt-5.6-sol` | `high` | `/codex-subagent review --model gpt-5.6-sol --effort high [--uncommitted \| --base <branch> \| --commit <sha>] [focus]` |
 | Adversarial review | `gpt-5.6-sol` | `high` | the review row, asked for as an adversarial review so the skill prepends its adversarial block |
 
-One question per research run, with at most a few things to answer. Split a broad topic into
-focused runs and dispatch them in waves under the concurrency cap. A research run is read-only:
-drop `--read-only` only when the brief names a repo path for Codex to write to, and then say which
-files to leave alone.
+One question per research run, with at most a few things to answer. Split a broad topic into focused runs and dispatch them in waves under the concurrency cap. A research run is read-only: drop `--read-only` only when the brief names a repo path for Codex to write to, and then say which files to leave alone.
 
 Runs go to the background.
 Tell me when the status check shows a run quiet for 3 minutes; the decision to kill it is mine.
@@ -234,7 +231,7 @@ what the tests cannot reach:
 - [ ] `/codex-subagent:setup` re-run on a repo whose section carries hand edits — a reworded row, an
       added row, a paragraph of its own guidance, an edited threshold — changes only the lines it
       owns and leaves every hand edit where it was.
-- [ ] One delegation driven by a row of a generated section returns a result.
+- [ ] One delegation driven by a row of a generated section returns a final message.
 - [ ] A `--read-only` run changes nothing (`git status --porcelain` stays empty).
 - [ ] A workspace-write run makes a small edit and runs a test.
 - [ ] A live web search works.

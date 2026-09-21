@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Interview this repo for its `## Codex delegation` section — routing table, pause rule, quiet-run threshold, concurrency cap — and write it into CLAUDE.md. Invoked by name only."
+description: "Interview this repo for its `## Codex delegation` section — routing table, pause rule, quiet-run threshold, concurrency cap — and write it into CLAUDE.md."
 disable-model-invocation: true
 ---
 
@@ -111,7 +111,7 @@ Delegate through the `codex-subagent` skill by the table below.
 | Work | Model | Effort | Invocation |
 | --- | --- | --- | --- |
 | Implementation — including spikes and prototypes | `<model>` | `<effort>` | `/codex-subagent --model <model> --effort <effort> <task>` |
-| Research and exploration — any source | `<model>` | `<effort>` | `/codex-subagent --model <model> --effort <effort> [--read-only] <task>` |
+| Research and exploration — any source | `<model>` | `<effort>` | `/codex-subagent --model <model> --effort <effort> --read-only <task>` |
 | Review — findings on a diff | `<model>` | `<effort>` | `/codex-subagent review --model <model> --effort <effort> [--uncommitted \| --base <branch> \| --commit <sha>] [focus]` |
 | Adversarial review | `<model>` | `<effort>` | the review row, asked for as an adversarial review so the skill prepends its adversarial block |
 
@@ -163,11 +163,16 @@ A re-run edits each owned line where it stands, one edit per line, matching the 
 now. That is what keeps the rest of the section intact; a section rewritten wholesale from the draft
 flattens the user's lines back to the draft's.
 
+The six lines below are the ones this skill owns, and the only ones a re-run rewrites; every other
+line in the section is the user's:
+
 - **The delegating sentence.** Replace whichever of the two forms the section carries, in place.
 - **The rows this skill wrote.** Find each by its Work label and replace that row's Model, Effort,
   and Invocation cells. A switched model lands in two cells of one row and moves nothing else in the
   table.
-- **The threshold line, the cap line, and the stop-after-review line.** Replace each in place.
+- **The threshold line, the cap line, and the stop-after-review line.** Replace each in place. The
+  interview asks for the two numbers and never for the stop-after-review line, whose wording is
+  fixed: the skill writes it on a first run and rewrites it on a re-run all the same.
 - **The environment line.** Update it, add it when the answer names something and no line is there,
   or drop it when the answer is now nothing. A line already there keeps the position it has; a new
   one goes where the draft puts it, last of the behaviour lines.
@@ -181,9 +186,3 @@ it did.
 
 Name the file you wrote and say the `codex-subagent` skill now reads this repo's delegation rules
 from that section.
-
-## Lines this skill owns
-
-The delegating sentence, the table rows it wrote, the threshold line, the cap line, the
-stop-after-review line, and the environment line. Everything else in the section is the user's —
-rows they added or reworded, guidance they wrote — and a re-run leaves it where it is.

@@ -53,7 +53,7 @@ The `## Codex delegation` section a repo's `CLAUDE.md` carries, written by the s
 _Avoid_: Codex policy, skill config, defaults, routing rules
 
 **Setup skill**:
-The user-invoked skill that interviews for a repo's Codex delegation and writes the section into `CLAUDE.md`, updating an existing one in place and keeping hand edits.
+The user-invoked skill that interviews for a repo's Codex delegation and writes the section into `CLAUDE.md`, or `AGENTS.md` when that is the repo's instructions file, updating an existing one in place and keeping hand edits.
 _Avoid_: Installer, wizard, init
 
 **Routing table**:

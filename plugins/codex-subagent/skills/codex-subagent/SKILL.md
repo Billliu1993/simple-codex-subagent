@@ -59,7 +59,8 @@ user the run directory as soon as the run is dispatched, so they can watch it th
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/codex-subagent.sh status <run dir>
 ```
 
-Run it when the user asks how a run is doing, and before you settle in to wait on a result. It
+Run it when the user asks how a run is doing, and before you settle in to wait on a final
+message. It
 reports the pid alive or exited with its exit code, seconds since the progress log last moved, the
 thread id, a review's scope, an abandoned resume, and the tail of each log file, so one check
 answers the question on its own.
