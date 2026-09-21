@@ -3,10 +3,11 @@
 A Claude Code plugin that hands one scoped task to the locally installed OpenAI Codex CLI and
 reads back its final message. Claude plans and verifies; Codex works.
 
-The whole plugin is one skill and one shell wrapper. Every run goes through `codex exec` — the
-supported non-interactive interface — and every run is sandboxed by Codex as `read-only` or
-`workspace-write`. The wrapper offers no bypass and no full-access option, and has no code path
-that could add one.
+The whole plugin is two skills and one shell wrapper: a delegating skill that hands the work over,
+a setup skill that writes a repo's delegation rules, and the wrapper that runs Codex. Every run
+goes through `codex exec` — the supported non-interactive interface — and every run is sandboxed
+by Codex as `read-only` or `workspace-write`. The wrapper offers no bypass and no full-access
+option, and has no code path that could add one.
 
 ## What it needs
 
@@ -23,7 +24,8 @@ so re-auditing it after a Codex release takes minutes.
 
 ## Install
 
-Install once at user scope; each repo's `CLAUDE.md` then decides when work goes to Codex.
+Install once at user scope; each repo's `CLAUDE.md` then decides when work goes to Codex, and
+`/codex-subagent:setup` writes that part for you, once per repo.
 
 ```
 /plugin marketplace add Billliu1993/simple-codex-subagent
@@ -36,45 +38,75 @@ plugin directory, so an update always has something to pick up.
 ## Invoke
 
 ```
+/codex-subagent:setup
 /codex-subagent --model <m> --effort <e> [--read-only] [--resume <thread-id>] <task>
 /codex-subagent review --model <m> --effort <e> [--uncommitted | --base <branch> | --commit <sha>] [focus]
 ```
 
-`--model` and `--effort` are required on both forms; a call missing either one fails rather than
-falling back to a Codex default. Effort values pass straight through to Codex, so the wrapper never
-goes stale on that list. `--read-only` picks the read-only sandbox; without it the run gets
-`workspace-write`, which can edit the repository and reach the network but nothing outside the
+`/codex-subagent:setup` is the once-per-repo one, and it runs only when you ask for it by name.
+The other two are the delegation itself.
+
+`--model` and `--effort` are required on both delegation forms; a call missing either one fails
+rather than falling back to a Codex default. Effort values pass straight through to Codex, so the
+wrapper never goes stale on that list. `--read-only` picks the read-only sandbox; without it the run
+gets `workspace-write`, which can edit the repository and reach the network but nothing outside the
 repository.
 
-No file in the plugin names a model. Choosing a model is a `CLAUDE.md` edit, never a plugin
-release, so the plugin never goes stale on a model that ships or retires.
+Nothing the plugin runs names a model: no wrapper default, no skill default. Which model does which
+work is a `CLAUDE.md` edit — the example section below shows the models one repo chose — never a
+plugin release, so the plugin never goes stale on a model that ships or retires.
 
-## Suggested CLAUDE.md routing table
+## The repo's Codex delegation section
 
-Paste this into a repo's `CLAUDE.md` and replace every `<model>` with the Codex model you want that
-row to run on. The efforts are suggestions; edit them for the repo.
+Run `/codex-subagent:setup` once in a repo. It interviews you and writes a `## Codex delegation`
+section into that repo's `CLAUDE.md` — or `AGENTS.md`, or whichever of the two you ask it to
+create when the repo has neither — and writes nothing anywhere else. The questions come one at a
+time, each led by a recommendation you can accept in a word: the model for each kind of work, the
+effort for each kind of work, whether Claude delegates straight away or proposes and waits for
+your go-ahead when you did not ask for Codex, how long a run may go quiet before Claude tells you,
+what Codex cannot run in this environment, and how many runs may go at once. You see the whole
+section, and can edit it and add rows, before any of it is written.
+
+Accepting every recommendation in a repo with no instructions file writes this:
 
 ```markdown
-## Codex routing
+## Codex delegation
 
-Delegate to the `codex-subagent` skill by the table below. The models and efforts here are this
-repo's choices; the plugin has no defaults. How the delegation behaves — when to propose it, how a
-run is watched, what is reported back — is the skill's business, not this table's.
+Delegate through the `codex-subagent` skill by the table below.
 
 | Work | Model | Effort | Invocation |
 | --- | --- | --- | --- |
-| Implementation — a scoped change against a plan already agreed | `<model>` | `high` | `/codex-subagent --model <model> --effort high <task>` |
-| Research and exploration — how something works, where it lives, what the docs say | `<model>` | `medium` | `/codex-subagent --model <model> --effort medium --read-only <task>` |
-| Review — findings on a diff | `<model>` | `high` | `/codex-subagent review --model <model> --effort high [--uncommitted \| --base <branch> \| --commit <sha>] [focus]` |
-| Adversarial review — assume the change is broken and hunt for the break | `<model>` | `high` | the review row, asked for as an adversarial review so the skill prepends its adversarial block |
+| Implementation — including spikes and prototypes | `gpt-5.6-sol` | `high` | `/codex-subagent --model gpt-5.6-sol --effort high <task>` |
+| Research and exploration — any source | `gpt-5.6-sol` | `medium` | `/codex-subagent --model gpt-5.6-sol --effort medium [--read-only] <task>` |
+| Review — findings on a diff | `gpt-5.6-sol` | `high` | `/codex-subagent review --model gpt-5.6-sol --effort high [--uncommitted \| --base <branch> \| --commit <sha>] [focus]` |
+| Adversarial review | `gpt-5.6-sol` | `high` | the review row, asked for as an adversarial review so the skill prepends its adversarial block |
 
-Runs go to the background. Tell me when the status check shows a run quiet for <N> minutes; the
-decision to kill it is mine.
+One question per research run, with at most a few things to answer. Split a broad topic into
+focused runs and dispatch them in waves under the concurrency cap. A research run is read-only:
+drop `--read-only` only when the brief names a repo path for Codex to write to, and then say which
+files to leave alone.
+
+Runs go to the background.
+Tell me when the status check shows a run quiet for 3 minutes; the decision to kill it is mine.
+Keep at most 2 runs going at once.
+After a review, present the findings and stop: I pick which ones a later run fixes.
 ```
 
-That threshold line is the one number worth keeping in `CLAUDE.md`, next to the work it governs.
-The plugin holds no threshold and kills nothing, so a repo with legitimately long runs is never
-interrupted by it.
+The `codex-subagent` skill carries the mechanics of a delegation — the prompt, the sandbox, the
+run, resume, review, the status check, the verification of Codex's claims after an implementation
+run — and the section carries the behaviour around it: the pause rule, the stop after a review,
+the quiet-run threshold, the concurrency cap, and what Codex cannot run here. One place per repo
+to read and to edit, and no rule the plugin and the repo can state differently. Why the line is
+drawn there: `docs/adr/0002-skill-carries-mechanics-repo-carries-behaviour.md`. The threshold and
+the cap are the two numbers worth keeping next to the work they govern, and they are the repo's
+because the plugin holds neither and kills nothing, so a repo with legitimately long runs is never
+interrupted by them.
+
+The section is plain markdown, so edit it by hand: reword a row, add one, write down the guidance
+the repo has learned. A re-run of the setup skill starts from the values already in the section
+and rewrites only the lines it owns — the delegating sentence, the rows it wrote, the threshold
+line, the cap line, the stop-after-review line, and the environment line. Everything else stays
+byte for byte, in place.
 
 ## The run directory
 
@@ -165,8 +197,9 @@ same way a resume pins its sandbox, `--strict-config` included: a review reads, 
 the wrapper's sandbox rather than whatever your own Codex config would have given it.
 
 An adversarial review is the same run with the skill's canned block prepended: Codex assumes the
-change is broken and hunts for the inputs and orderings that break it. A review edits nothing, and
-Claude presents the findings and stops.
+change is broken and hunts for the inputs and orderings that break it. A review edits nothing: the
+run leaves the tree untouched. Whether Claude then presents the findings and stops, or carries on
+and fixes them, is the repo's `## Codex delegation` section's call, not the skill's.
 
 ## Exit codes
 
@@ -191,6 +224,12 @@ what the tests cannot reach:
 
 - [ ] Install from the marketplace succeeds.
 - [ ] The short form `/codex-subagent` resolves.
+- [ ] `/codex-subagent:setup` in a repo with no `CLAUDE.md` and no `AGENTS.md` asks which to create,
+      and writes the section into that one file and nothing else.
+- [ ] `/codex-subagent:setup` re-run on a repo whose section carries hand edits — a reworded row, an
+      added row, a paragraph of its own guidance, an edited threshold — changes only the lines it
+      owns and leaves every hand edit where it was.
+- [ ] One delegation driven by a row of a generated section returns a result.
 - [ ] A `--read-only` run changes nothing (`git status --porcelain` stays empty).
 - [ ] A workspace-write run makes a small edit and runs a test.
 - [ ] A live web search works.

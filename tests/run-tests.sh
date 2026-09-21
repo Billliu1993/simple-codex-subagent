@@ -951,12 +951,18 @@ case_flag_value_that_is_a_flag() {
   assert_eq 0 "$status" "none of them reach codex"
 }
 
-# Choosing a model is a CLAUDE.md edit, never a plugin release, so no file the plugin ships may
-# name one.
+# Choosing a model is a CLAUDE.md edit, never a plugin release, so nothing the plugin runs may name
+# one: not the wrapper, not either skill, not the manifest. The plugin README is excluded on purpose
+# — it shows one example of the section the setup skill writes, copied from a real run, and a real
+# run names the model it ran on. An example in prose starts no run; a name in the wrapper or a skill
+# would.
 case_plugin_names_no_model() {
   local hits
-  hits=$(grep -rn -- 'gpt-' "$REPO_ROOT/plugins" 2>/dev/null)
-  assert_eq "" "$hits" "no file under plugins/ names a model"
+  hits=$(grep -rn -- 'gpt-' \
+    "$REPO_ROOT/plugins/codex-subagent/scripts" \
+    "$REPO_ROOT/plugins/codex-subagent/skills" \
+    "$REPO_ROOT/plugins/codex-subagent/.claude-plugin" 2>/dev/null)
+  assert_eq "" "$hits" "no wrapper, skill or manifest file under plugins/ names a model"
 }
 
 # --- review focus vs scope ---
