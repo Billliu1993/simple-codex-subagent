@@ -143,17 +143,13 @@ The wrapper exits with Codex's own status, so Claude's success and failure judge
 
 - [ ] Install from the marketplace succeeds.
 - [ ] The short form `/codex-subagent` resolves.
-- [ ] `/codex-subagent:setup` in a repo with no `CLAUDE.md` and no `AGENTS.md` asks which to create,
-      and writes the section into that one file and nothing else.
-- [ ] `/codex-subagent:setup` re-run on a repo whose section carries hand edits — a reworded row, an
-      added row, a paragraph of its own guidance, an edited threshold — changes only the lines it
-      owns and leaves every hand edit where it was.
+- [ ] `/codex-subagent:setup` in a repo with no `CLAUDE.md` and no `AGENTS.md` asks which to create, and writes the section into that one file and nothing else.
+- [ ] `/codex-subagent:setup` re-run on a repo whose section carries hand edits — a reworded row, an added row, a paragraph of its own guidance, an edited threshold — changes only the lines it owns and leaves every hand edit where it was.
 - [ ] One delegation driven by a row of a generated section returns a final message.
 - [ ] A `--read-only` run changes nothing (`git status --porcelain` stays empty).
 - [ ] A workspace-write run makes a small edit and runs a test.
 - [ ] A live web search works.
 - [ ] A review of uncommitted changes returns findings and edits nothing.
 - [ ] A resume continues a thread.
-- [ ] A read-only thread resumed with `--read-only` cannot write; the same thread resumed without
-      it can.
+- [ ] A read-only thread resumed with `--read-only` cannot write; the same thread resumed without it can.
 - [ ] A bad model name surfaces as a failure with a log tail.
