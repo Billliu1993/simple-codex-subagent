@@ -398,9 +398,10 @@ status_newest_mtime() { # status_newest_mtime <file>...
 # scope, an abandoned resume -- each only when the run directory holds the file that carries it,
 # then the tail of each progress log file that has anything in it.
 #
-# A run directory always holds a `pid` file, written before anything else a run records, and that
-# file always holds a pid. A directory missing either is not one this wrapper wrote, so the path is
-# wrong and saying so beats reporting on a directory nobody asked about.
+# A run directory holds `prompt.md` from the moment the wrapper starts reading stdin and `pid` from
+# the moment codex is running, and the pid file always holds a pid. A directory with neither file,
+# or a pid file holding something else, is not one this wrapper wrote, so the path is wrong and
+# saying so beats reporting on a directory nobody asked about.
 #
 # The pid's state comes from `exit-code` first and from the process only when there is no such file.
 # A recorded exit code means the run is over, and a pid the OS has since handed to something else
@@ -412,19 +413,26 @@ status_newest_mtime() { # status_newest_mtime <file>...
 print_status() { # print_status <run dir>
   local d=$1 pid exit_code newest line value f
   [[ -d $d && -r $d && -x $d ]] || die 64 "cannot read run directory '$d'"
-  [[ -f $d/pid && -r $d/pid ]] || die 64 "'$d' is not a run directory: no pid file"
 
-  pid=$(cat "$d/pid" 2>/dev/null) || pid=""
-  # Checked before `kill -0` ever sees it: `kill -0 -1` signals every process the user owns.
-  [[ $pid =~ ^[0-9]+$ ]] || die 64 "'$d' is not a run directory: pid file holds '$pid'"
-
-  if [[ -f $d/exit-code ]]; then
-    exit_code=$(cat "$d/exit-code" 2>/dev/null) || exit_code=""
-    printf 'pid %s: exited, exit code %s\n' "$pid" "${exit_code:-not recorded}"
-  elif kill -0 "$pid" 2>/dev/null; then
-    printf 'pid %s: alive\n' "$pid"
+  # The wrapper writes `prompt.md` the moment it starts reading stdin and `pid` only once codex is
+  # running, so a directory with the first and not the second is a run that has not started yet:
+  # a real run directory, checked early. A directory with neither is not one this wrapper wrote.
+  if [[ ! -f $d/pid ]]; then
+    [[ -f $d/prompt.md ]] || die 64 "'$d' is not a run directory: no pid file"
+    printf 'pid: not started yet\n'
   else
-    printf 'pid %s: exited, exit code not recorded\n' "$pid"
+    pid=$(cat "$d/pid" 2>/dev/null) || pid=""
+    # Checked before `kill -0` ever sees it: `kill -0 -1` signals every process the user owns.
+    [[ $pid =~ ^[0-9]+$ ]] || die 64 "'$d' is not a run directory: pid file holds '$pid'"
+
+    if [[ -f $d/exit-code ]]; then
+      exit_code=$(cat "$d/exit-code" 2>/dev/null) || exit_code=""
+      printf 'pid %s: exited, exit code %s\n' "$pid" "${exit_code:-not recorded}"
+    elif kill -0 "$pid" 2>/dev/null; then
+      printf 'pid %s: alive\n' "$pid"
+    else
+      printf 'pid %s: exited, exit code not recorded\n' "$pid"
+    fi
   fi
 
   newest=$(status_newest_mtime "$d/events.jsonl" "$d/progress.log")

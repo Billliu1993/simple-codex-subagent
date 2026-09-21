@@ -40,10 +40,10 @@ Pick the file before the interview, because a section already in it sets the rec
 Then look for the section:
 
 ```
-grep -n '^## Codex delegation' <file>
+grep -n '^## Codex delegation$' <file>
 ```
 
-The section runs from that top-level heading to the next top-level `## ` heading, or to the end of the file. No heading is a first run: the interview recommends the defaults in step 4, and step 6 appends a new section. One heading is a re-run: the section's current values are the recommendations, and step 6 updates that section where it stands.
+The match is the whole line, so a heading that merely starts with those words, `## Codex delegation notes` say, is another section and not this one. The section runs from that top-level heading to the next top-level `## ` heading, or to the end of the file. No heading is a first run: the interview recommends the defaults in step 4, and step 6 appends a new section. One heading is a re-run: the section's current values are the recommendations, and step 6 updates that section where it stands.
 
 Read each value off the section as it reads now, so a line the user reworded still yields it:
 
@@ -127,8 +127,9 @@ The six lines below are the ones this skill owns, and the only ones a re-run rew
 - **The rows this skill wrote.** Find each by its Work label and replace that row's Model, Effort, and Invocation cells. A switched model lands in two cells of one row and moves nothing else in the table.
 - **The threshold line, the cap line, and the stop-after-review line.** Replace each in place. The interview asks for the two numbers and never for the stop-after-review line, whose wording is fixed: the skill writes it on a first run and rewrites it on a re-run all the same.
 - **The environment line.** Update it, add it when the answer names something and no line is there, or drop it when the answer is now nothing. A line already there keeps the position it has; a new one goes where the draft puts it, last of the behaviour lines.
+- **An owned line that is gone.** A row this skill wrote, the delegating sentence, the threshold line, the cap line, or the stop-after-review line that the user deleted is added back where the draft puts it, carrying the answer the interview took for it. The user's lines around it stay where they are.
 
-Every other line in the section survives byte for byte, in place: the research guidance, rows the user added or reworded, and every line they wrote themselves. Afterwards `grep -c '^## Codex delegation'` on the file is 1, and the rest of the file — every section before and after — reads as it did.
+Every other line in the section survives byte for byte, in place: the research guidance, rows the user added or reworded, and every line they wrote themselves. Afterwards `grep -c '^## Codex delegation$'` on the file is 1, and the rest of the file — every section before and after — reads as it did.
 
 ## 7. Done
 

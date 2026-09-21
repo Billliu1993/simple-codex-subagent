@@ -489,6 +489,18 @@ case_status_plain_directory() {
   assert_contains "$t3_err" "codex-subagent:" "status on a plain directory says so on stderr"
 }
 
+# A run directory checked before codex has started: the wrapper has written the prompt but no pid
+# yet. That is a real run directory, so the check reports it rather than refusing it.
+case_status_before_codex_starts() {
+  mkdir -p "$case_dir/early-run"
+  printf 'prompt\n' >"$case_dir/early-run/prompt.md"
+  t3_check "$case_dir/early-run"
+  assert_eq 0 "$t3_code" "status on a run that has not started exits 0"
+  assert_contains "$t3_out" "pid: not started yet" "status says the run has not started"
+  assert_not_contains "$t3_out" "alive" "status does not call an unstarted run alive"
+  assert_contains "$t3_out" "no progress log yet" "status reports no log to age yet"
+}
+
 # A finished run's state comes from `exit-code`, not from the pid: the fixture's pid is this test
 # shell, alive and unrelated, which is exactly what a recycled pid looks like from here.
 case_status_exit_code_beats_a_live_pid() {
@@ -1224,6 +1236,7 @@ run_case case_review_empty_focus_keeps_the_flag
 run_case case_review_scope_records_delivery
 
 run_case case_status_plain_directory
+run_case case_status_before_codex_starts
 run_case case_status_exit_code_beats_a_live_pid
 run_case case_status_rejects_a_garbage_pid
 run_case case_status_before_the_log_moves

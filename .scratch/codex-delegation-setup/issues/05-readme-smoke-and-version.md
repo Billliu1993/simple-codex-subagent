@@ -73,3 +73,4 @@
   default branch, which is still 0.2.3 until this merges. Every criterion is ticked; the `Status:`
   line is left at `ready-for-agent` for the orchestrator.
 - 2026-09-20: the "short form resolves / setup invoked as a slash command" gap was closed for the setup skill by a headless `--plugin-dir` session; see ticket 03. The `/codex-subagent` short form was not re-checked, since that skill is unchanged in layout since 0.2.3.
+- 2026-09-20: a Codex review of the branch (`review --base main`, run through the wrapper) raised six P2 findings; five were validated and fixed: status reports a run directory that holds the prompt but no pid yet as not started instead of refusing it; the setup skill matches the heading as a whole line and adds back an owned line the user deleted; the delegating skill names AGENTS.md beside CLAUDE.md and defers the sandbox choice to the routing row. Left as designed: the skill still dispatches runs in the background.
