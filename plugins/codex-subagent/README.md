@@ -6,7 +6,7 @@ The whole plugin is two skills and one shell wrapper: a delegating skill that ha
 
 ## What it needs
 
-- The Codex CLI on `PATH`, signed in. Verified against codex-cli 0.155.1.
+- The Codex CLI on `PATH`, signed in. Verified against codex-cli 0.156.0.
 - `git`. Codex refuses to run outside a repository, and so does the wrapper.
 - Bash and coreutils.
 
