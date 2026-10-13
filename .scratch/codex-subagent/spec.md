@@ -2,7 +2,7 @@
 
 Status: implemented in PR #1 (feat/codex-subagent-plugin)
 Source: grilling session on 2026-09-14, superseding the earlier brief (`minimal-claude-codex-delegation-skill.md`, removed from the repo on 2026-09-19; see git history before that date) where they differ.
-Vocabulary: `CONTEXT.md`. Governing decision: ADR-0001.
+Vocabulary: `GLOSSARY.md`. Governing decision: ADR-0001.
 
 ## Problem Statement
 

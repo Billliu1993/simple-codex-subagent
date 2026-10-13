@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 Source: grilling session on 2026-09-20, following the first real-work run of plugin version 0.2.3 and the orchestrator's friction report from it.
-Vocabulary: `CONTEXT.md`. Governing decisions: ADR-0001, ADR-0002.
+Vocabulary: `GLOSSARY.md`. Governing decisions: ADR-0001, ADR-0002.
 Ships as: plugin version 0.3.0, one bump for the whole spec.
 
 ## Problem Statement
